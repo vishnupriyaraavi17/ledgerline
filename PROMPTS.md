@@ -71,17 +71,20 @@ This log records interactions with AI assistants throughout the construction of 
   3. *OAuth2 Form Body Dependency*: Supporting Swagger UI's `/token` endpoint with `OAuth2PasswordRequestForm` triggered `RuntimeError: Form data requires 'python-multipart' to be installed`.
   4. *Pydantic Model Mutation in Deactivation Tests*: In integration tests testing deactivation, mutating `created.is_active = False` on the returned Pydantic `UserResponse` schema failed to alter the database row in PostgreSQL, causing login tests to unexpectedly succeed until querying the live SQLAlchemy model directly.
   5. *TypeScript Unused Imports*: Vite build failed due to unused icons and variables in `Login.tsx`.
+  6. *Dev Credentials in Production Build*: The initial frontend build bundled development quick-fill password strings (`Admin_SecPass_2026!`) into `dist/assets/index-*.js`.
 - **Corrections Applied**:
   1. *Alembic Enum Cleanup*: Added `op.execute("DROP TYPE IF EXISTS user_role_enum CASCADE")` in migration `0002_create_users_table.py` downgrade, and verified full upgrade -> downgrade -> upgrade cycle cleanly.
   2. *Valid Domain Names*: Changed seed email domains to `@ledgerline.internal`.
   3. *Multipart Dependency*: Installed `python-multipart>=0.0.9` and recorded in `backend/requirements.txt`.
   4. *Direct DB Entity Mutation*: Updated integration tests to query and update the SQLAlchemy `User` model directly in `SessionLocal` before committing.
   5. *Clean Frontend Types*: Removed unused variables, updated `UserResponse` to Pydantic v2 `ConfigDict(from_attributes=True)`, and confirmed clean TypeScript/Vite compilation.
+  6. *Production Credential Stripping*: Isolated development quick-fill accounts behind `import.meta.env.DEV ? DevQuickFill : null`. The Vite bundler eliminates the code block during production build. Verified with text scan that zero passwords or quick-fill strings exist in `dist/`.
+  7. *Strict RBAC Modal Guarding*: Added explicit `user?.role === 'admin'` guards on both the modal render condition and the form submission handler in `Users.tsx`.
 - **Verification Performed**:
   - Database Migration: `alembic upgrade head` -> `alembic downgrade -1` -> `alembic upgrade head` succeeded against live PostgreSQL 17 (`0002_create_users_table`).
   - Backend Unit Tests: 19 passed (`pytest backend/tests/unit -v`).
   - Backend Integration Tests: 20 passed (`pytest backend/tests/integration -v`).
   - Full Backend Suite: 39 passed (`pytest backend/tests -v`).
-  - Frontend Production Build: `npm run build` compiled cleanly in 8.90s.
-  - Security Verification: Confirmed `.env` is ignored by Git, no credentials appear in commits, and password hashes are never exposed in any API response.
-- **Commit Link**: `ed539aa723b75cfa48842f1f50a49beff4bfb3b3`
+  - Production Bundle String Scan: PowerShell `Select-String` confirmed zero occurrences of `Admin_SecPass`, `Holder_SecPass`, `Auditor_SecPass`, or `Quick-Fill` in `dist/assets/*.js`.
+  - Frontend Production Build: `npm run build` compiled cleanly in 2.48s.
+- **Commit Link**: `[PENDING COMMIT]`

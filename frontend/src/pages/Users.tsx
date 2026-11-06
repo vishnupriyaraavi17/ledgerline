@@ -53,6 +53,10 @@ export const UsersPage: React.FC = () => {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (user?.role !== 'admin') {
+      setFormError('403 Forbidden: Only Admin accounts can provision users.');
+      return;
+    }
     setFormError(null);
     setIsSubmitting(true);
 
@@ -263,8 +267,8 @@ export const UsersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Provision User Modal */}
-      {showModal && (
+      {/* Provision User Modal - Strictly restricted to Admin */}
+      {showModal && user?.role === 'admin' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
           <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">

@@ -124,48 +124,57 @@ export const Login: React.FC = () => {
             </button>
           </form>
 
-          {/* Quick Development Role Fillers */}
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                Local Dev Quick-Fill Accounts
-              </span>
-              <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200 font-mono">
-                Development
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => fillQuickCredentials('admin', 'Admin_SecPass_2026!')}
-                className="p-2 text-left rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition"
-              >
-                <div className="text-xs font-bold text-slate-900">Admin</div>
-                <div className="text-[10px] text-slate-500">Full RBAC</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fillQuickCredentials('holder', 'Holder_SecPass_2026!')}
-                className="p-2 text-left rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition"
-              >
-                <div className="text-xs font-bold text-slate-900">Holder</div>
-                <div className="text-[10px] text-slate-500">Account Holder</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fillQuickCredentials('auditor', 'Auditor_SecPass_2026!')}
-                className="p-2 text-left rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition"
-              >
-                <div className="text-xs font-bold text-slate-900">Auditor</div>
-                <div className="text-[10px] text-slate-500">Read-Only</div>
-              </button>
-            </div>
-          </div>
+          {/* Quick Development Role Fillers — Strictly stripped out in production builds */}
+          {DevQuickFill && <DevQuickFill onFill={fillQuickCredentials} />}
         </div>
       </div>
     </div>
   );
 };
+
+// Development-only quick credentials helper (Dead code eliminated by bundler in production)
+const DevQuickFill = import.meta.env.DEV
+  ? ({ onFill }: { onFill: (u: string, p: string) => void }) => {
+      return (
+        <div className="mt-8 pt-6 border-t border-slate-100">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              Local Dev Quick-Fill Accounts
+            </span>
+            <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200 font-mono">
+              Development Only
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => onFill('admin', 'Admin_SecPass_2026!')}
+              className="p-2 text-left rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition"
+            >
+              <div className="text-xs font-bold text-slate-900">Admin</div>
+              <div className="text-[10px] text-slate-500">Full RBAC</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onFill('holder', 'Holder_SecPass_2026!')}
+              className="p-2 text-left rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition"
+            >
+              <div className="text-xs font-bold text-slate-900">Holder</div>
+              <div className="text-[10px] text-slate-500">Account Holder</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onFill('auditor', 'Auditor_SecPass_2026!')}
+              className="p-2 text-left rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition"
+            >
+              <div className="text-xs font-bold text-slate-900">Auditor</div>
+              <div className="text-[10px] text-slate-500">Read-Only</div>
+            </button>
+          </div>
+        </div>
+      );
+    }
+  : null;
