@@ -84,4 +84,4 @@ This log records interactions with AI assistants throughout the construction of 
   - Full Backend Suite: 39 passed (`pytest backend/tests -v`).
   - Frontend Production Build: `npm run build` compiled cleanly in 8.90s.
   - Security Verification: Confirmed `.env` is ignored by Git, no credentials appear in commits, and password hashes are never exposed in any API response.
-- **Commit Link**: `[PENDING COMMIT]`
+- **Commit Link**: `ed539aa723b75cfa48842f1f50a49beff4bfb3b3`
