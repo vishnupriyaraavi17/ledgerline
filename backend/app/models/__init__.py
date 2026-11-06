@@ -1,8 +1,8 @@
 """
 LedgerLine Domain Models.
-Financial domain models (Accounts, Ledger Entries, Transactions) will be registered here.
 """
 
 from backend.app.db.base import Base
+from backend.app.models.user import User, UserRole
 
-__all__ = ["Base"]
+__all__ = ["Base", "User", "UserRole"]

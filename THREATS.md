@@ -10,12 +10,12 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 
 | Threat ID | Threat Category | Severity | Current Status |
 | :--- | :--- | :--- | :--- |
-| **THR-01** | Unauthorised Account Access | Critical | **Identified / Foundation Established** (Auth & access control scheduled for Task 02) |
+| **THR-01** | Unauthorised Account Access | Critical | **Partially Mitigated (Task 02)** (Identity, Argon2id auth, JWT, and generic 401s implemented; account binding in Task 03) |
 | **THR-02** | Concurrent Withdrawals (Race Conditions) | Critical | **Identified / Foundation Established** (Pessimistic locking & isolation scheduled for Task 03) |
 | **THR-03** | Duplicate Money Movement (Replay Attacks) | Critical | **Identified / Foundation Established** (Atomic idempotency engine scheduled for Task 03) |
-| **THR-04** | Negative Balances / Overdraft Violations | Critical | **Identified / Foundation Established** (Atomic balance checks & DB check constraints scheduled for Task 02) |
+| **THR-04** | Negative Balances / Overdraft Violations | Critical | **Identified / Foundation Established** (Atomic balance checks & DB check constraints scheduled for Task 03) |
 | **THR-05** | Ledger Modification or Deletion (Tampering) | Critical | **Identified / Foundation Established** (Append-only schema, DB triggers & cryptographic hashing scheduled for Task 04) |
-| **THR-06** | Privilege Escalation | High | **Identified / Foundation Established** (Role-based access control engine scheduled for Task 02) |
+| **THR-06** | Privilege Escalation | High | **Mitigated (Task 02)** (Server-side RBAC dependency factory with Admin, Account Holder, Auditor role enforcement) |
 | **THR-07** | Forged Requests & Parameter Tampering | High | **Identified / Foundation Established** (Pydantic validation active; request signatures scheduled for Task 03) |
 | **THR-08** | Database Failure & Connection Outages | High | **Mitigated (Foundation Phase)** (Tested via real PostgreSQL probe, pooling & error masking) |
 
@@ -26,8 +26,12 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 ### THR-01: Unauthorised Account Access
 - **Attack Scenario**: A malicious actor or authenticated account holder submits a transfer or withdrawal request specifying an account identifier belonging to another customer (`source_account_id`), attempting to drain third-party funds.
 - **Planned Mitigation**: Server-side authorization resolution on every request. Accounts will be cryptographically bound to authenticated user identities. The database transaction will verify ownership inside the row lock before evaluating balances or writing ledger debits.
-- **Verification Test**: Automated integration test where User A attempts to initiate a debit on User B's account; must return HTTP 403 Forbidden with zero ledger entries generated.
-- **Current Status**: **Identified / Planned** — Foundation established; user authentication and account ownership models are scheduled for Task 02.
+- **Implemented Defenses (Task 02)**: Strict Argon2id password hashing, generic HTTP 401 unauthenticated errors (preventing user enumeration), in-memory JWT storage on client, and server-side `is_active` validation that immediately revokes access if an account is disabled.
+- **Verification Tests**:
+  - `backend/tests/unit/test_passwords.py`: Argon2id salt randomness, constant-time verification.
+  - `backend/tests/unit/test_tokens.py`: JWT signature verification, expiration and tamper rejection.
+  - `backend/tests/integration/test_auth_rbac_integration.py`: `test_login_wrong_password_returns_generic_401`, `test_login_nonexistent_user_returns_generic_401`, `test_inactive_user_cannot_login`, `test_inactive_user_with_previously_issued_token_rejected_server_side`.
+- **Current Status**: **Partially Mitigated (Task 02)** — Authentication and session controls operational; account-level ownership binding scheduled for Task 03.
 
 ---
 
@@ -73,13 +77,15 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 ---
 
 ### THR-06: Privilege Escalation
-- **Attack Scenario**: An Account Holder role calls administrative endpoints (e.g., account adjustments, freeze accounts) or an Auditor attempts to execute money transfers.
+- **Attack Scenario**: An Account Holder role calls administrative endpoints (e.g., user provisioning, account adjustments) or an Auditor attempts to execute money transfers or modify system state.
 - **Planned Mitigation**: Role-based access control (RBAC) enforced via FastAPI dependency injection at the endpoint route level before handler execution. Roles:
-  - `Admin`: Account provisioning, policy management, system monitoring.
+  - `Admin`: User provisioning, policy management, system monitoring.
   - `AccountHolder`: Transfer, deposit, withdrawal initiation on owned accounts only.
-  - `Auditor`: Read-only access to ledger statements, invariants, and threat reports.
-- **Verification Test**: Matrix test calling every endpoint with each of the three roles and verifying HTTP 403 Forbidden for unauthorized roles.
-- **Current Status**: **Identified / Planned** — Security dependencies and role claims scheduled for Task 02.
+  - `Auditor`: Read-only access to directory, statements, invariants, and compliance records.
+- **Implemented Defenses (Task 02)**: Route-level `require_role(...)` dependency factory verifying token claims against live DB status. Administrative creation endpoints restrict non-admins (`HTTP 403 Forbidden`). Directory listing endpoints restrict Account Holders (`HTTP 403 Forbidden`).
+- **Verification Tests**:
+  - `backend/tests/integration/test_auth_rbac_integration.py`: `test_admin_can_provision_new_user`, `test_auditor_cannot_provision_user`, `test_account_holder_cannot_provision_user`, `test_admin_can_list_users`, `test_auditor_can_list_users`, `test_account_holder_cannot_list_users`.
+- **Current Status**: **Mitigated (Task 02)** — RBAC enforcement operational and tested across all roles.
 
 ---
 
