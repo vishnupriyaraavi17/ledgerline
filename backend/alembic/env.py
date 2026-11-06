@@ -23,8 +23,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set database connection string dynamically from app settings
-config.set_main_option("sqlalchemy.url", settings.SQLALCHEMY_DATABASE_URI)
+# Set migration connection string strictly from MIGRATION_DATABASE_URI (fails closed)
+config.set_main_option("sqlalchemy.url", settings.MIGRATION_DATABASE_URI)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

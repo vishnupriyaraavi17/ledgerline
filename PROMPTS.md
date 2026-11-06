@@ -88,3 +88,40 @@ This log records interactions with AI assistants throughout the construction of 
   - Production Bundle String Scan: PowerShell `Select-String` confirmed zero occurrences of `Admin_SecPass`, `Holder_SecPass`, `Auditor_SecPass`, or `Quick-Fill` in `dist/assets/*.js`.
   - Frontend Production Build: `npm run build` compiled cleanly in 2.48s.
 - **Commit Link**: `b79f3d15949d97bf95a94eece03c5ea478d120a1`
+
+---
+
+### Entry 03 — 2026-11-06 / 2026-11-07
+- **Task / Goal**: Task 03: Financial Foundation (Account data models, double-entry ledger structures, single-currency INR with `NUMERIC(20, 2)` / Python `Decimal`, lifecycle state machine, least-privilege database role separation, database engine triggers, HTTP 404 anti-enumeration, frontend account management UI).
+- **Prompt Given**:
+  > "# LedgerLine — Start Task 03: Financial Foundation
+  > The Task 03 implementation plan, Revision 12, has been reviewed and explicitly approved.
+  > Begin implementation strictly according to the approved implementation_plan.md.
+  > Follow the approved component boundaries, database role separation, column-level privileges, ledger immutability triggers, account lifecycle rules, and account ownership protections.
+  > Every newly created account must start at exactly ₹0.00. Do not introduce opening-balance transactions or any money movement.
+  > Do not grant the runtime role INSERT, UPDATE, DELETE, or TRUNCATE privileges on ledger tables."
+- **AI Output Summary**:
+  The AI implemented:
+  1. DBA Role Provisioning: Executed `scripts/setup_roles.sql` configuring `ledgerline_owner` and `ledgerline_app` with all 6 security attributes (`NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`) and zero memberships in `pg_auth_members`.
+  2. Domain Models: `Account` with database-side `DEFAULT 0.00` (no client-side default), constraints `chk_customer_balance_non_negative`, `chk_account_number_format`, `chk_account_currency`; `LedgerTransaction` and `LedgerEntry` with `chk_ledger_entry_amount_positive`.
+  3. Alembic Migration `0003_create_financial_foundation.py`: Implemented fail-closed pre-flight role checks, enums, tables, engine triggers (`trg_enforce_account_creation_permissions`, `trg_protect_ledger_entries_row`, `trg_protect_ledger_entries_truncate`, `trg_protect_ledger_transactions_row`, `trg_protect_ledger_transactions_truncate`), revoked broad privileges from `ledgerline_app` and `PUBLIC`, granted restricted column-level privileges, and seeded root `ACC-SYSTEM01`.
+  4. Schemas, Repositories & Services: `AccountCreate` with `extra="forbid"`, `AccountResponse`, `AccountService` enforcing HTTP 404 anti-enumeration and lifecycle FSM (close requires ₹0.00 balance; closed accounts are terminal).
+  5. REST API & UI: Mounted `/accounts` endpoints, built React `AccountsPage` with role-governed views, and activated the navigation link.
+  6. Automated Test Suite: 31 new tests (4 unit modules + 1 integration module with Groups A, B, and C).
+- **Specific Issues Discovered**:
+  1. *Legacy Table Ownership*: Existing tables from Task 01/02 were owned by `ledgerline_user`. In PostgreSQL, altering schema ownership (`ALTER SCHEMA public OWNER TO ledgerline_owner`) does not alter ownership of existing tables. Alembic failed with `permission denied for table alembic_version`.
+  2. *Runtime Role Privilege Violation Output*: In PostgreSQL 17, attempting an `INSERT` that specifies an ungranted column (`balance`) when broad table-level `INSERT` is revoked triggers `psycopg.errors.InsufficientPrivilege: permission denied for table accounts` (rather than specifying the column name).
+  3. *Uncommitted Transaction Blocking TRUNCATE*: When an assertion failed, an unrolled savepoint left the connection holding locks on tables, causing subsequent `TRUNCATE` tests to block indefinitely on `ACCESS EXCLUSIVE` lock acquisition.
+  4. *FK Constraint on Parent Table TRUNCATE*: Running `TRUNCATE TABLE ledger_transactions` when referenced by `ledger_entries` raises PostgreSQL `FeatureNotSupported: cannot truncate a table referenced in a foreign key constraint` before the statement-level trigger fires.
+  5. *Alembic Config Relative Paths in Test*: Calling `alembic.command` inside `test_accounts_integration.py` required resolving absolute paths for `alembic.ini` and `script_location` based on repository root.
+- **Corrections Applied**:
+  1. *Table Ownership Reassignment*: Updated `scripts/setup_roles.sql` and executed `REASSIGN OWNED BY ledgerline_user TO ledgerline_owner` and granted `users` table DML access to `ledgerline_app`.
+  2. *Permission Error Assertions*: Updated integration test assertions to accept both `permission denied for table accounts` and `permission denied for column balance`.
+  3. *Robust Savepoint Architecture*: Configured test sessions with `scope="function"` and guaranteed `session.rollback()` in `finally` blocks. Wrapped all trigger-testing queries in `try ... except ... finally: sp.rollback()`.
+  4. *Truncate Trigger Verification*: Executed `TRUNCATE TABLE ledger_transactions CASCADE`, which immediately triggers `trg_protect_ledger_transactions_truncate` and verifies `prevent_ledger_modification()`.
+  5. *Alembic Config Resolution*: Constructed `alembic_cfg` using `project_root / "backend" / "alembic.ini"` and set `script_location` to `project_root / "backend" / "alembic"`.
+- **Verification Performed**:
+  - Full Test Suite: All 70 tests passed (40 unit + 30 integration) in 10.87s with zero failures.
+  - Integration Tests: All 10 tests across Group A (runtime role restrictions, anti-enumeration, column grants, triggers), Group B (migration seed verification, owner role system account creation, actual row immutability triggers), and Group C (Alembic downgrade/upgrade reversibility) passed.
+  - Frontend Production Build: `npm run build` compiled cleanly in 2.54s with zero errors.
+- **Commit Link**: `[Pending Commit]`

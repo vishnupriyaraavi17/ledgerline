@@ -10,104 +10,124 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 
 | Threat ID | Threat Category | Severity | Current Status |
 | :--- | :--- | :--- | :--- |
-| **THR-01** | Unauthorised Account Access | Critical | **Partially Mitigated (Task 02)** (Identity, Argon2id auth, JWT, and generic 401s implemented; account binding in Task 03) |
-| **THR-02** | Concurrent Withdrawals (Race Conditions) | Critical | **Identified / Foundation Established** (Pessimistic locking & isolation scheduled for Task 03) |
-| **THR-03** | Duplicate Money Movement (Replay Attacks) | Critical | **Identified / Foundation Established** (Atomic idempotency engine scheduled for Task 03) |
-| **THR-04** | Negative Balances / Overdraft Violations | Critical | **Identified / Foundation Established** (Atomic balance checks & DB check constraints scheduled for Task 03) |
-| **THR-05** | Ledger Modification or Deletion (Tampering) | Critical | **Identified / Foundation Established** (Append-only schema, DB triggers & cryptographic hashing scheduled for Task 04) |
-| **THR-06** | Privilege Escalation | High | **Mitigated (Task 02)** (Server-side RBAC dependency factory with Admin, Account Holder, Auditor role enforcement) |
-| **THR-07** | Forged Requests & Parameter Tampering | High | **Identified / Foundation Established** (Pydantic validation active; request signatures scheduled for Task 03) |
+| **THR-01** | Unauthorised Account Access & Account Enumeration | Critical | **Mitigated (Task 03)** (Identity-bound ownership, HTTP 404 anti-enumeration, strict Argon2id auth & JWT) |
+| **THR-02** | Concurrent Withdrawals (Race Conditions) | Critical | **Identified / Foundation Established** (Pessimistic locking & isolation scheduled for Task 04) |
+| **THR-03** | Duplicate Money Movement (Replay Attacks) | Critical | **Identified / Foundation Established** (Atomic idempotency engine scheduled for Task 04) |
+| **THR-04** | Negative Balances / Overdraft Violations | Critical | **Mitigated (Task 03)** (PostgreSQL check constraints `chk_customer_balance_non_negative`, `chk_account_currency`, database-side default `0.00`) |
+| **THR-05** | Ledger Modification or Deletion (Tampering) | Critical | **Mitigated (Task 03)** (PostgreSQL immutability triggers on row/statement levels, ledger table permissions revoked from runtime role; hash chaining scheduled for Task 05) |
+| **THR-06** | Privilege Escalation | High | **Mitigated (Task 02 & Task 03)** (Server-side RBAC dependency factory, lifecycle FSM restricted to Admin, system accounts reserved) |
+| **THR-07** | Forged Requests & Parameter Tampering | High | **Mitigated (Task 03)** (Strict Pydantic v2 validation with `extra="forbid"`, single currency INR, `Decimal(20, 2)` monetary precision) |
 | **THR-08** | Database Failure & Connection Outages | High | **Mitigated (Foundation Phase)** (Tested via real PostgreSQL probe, pooling & error masking) |
+| **THR-09** | Direct Balance Modification & System Account Spoofing | Critical | **Mitigated (Task 03)** (PostgreSQL column-level grants excluding `balance`, trigger `trg_enforce_account_creation_permissions` guarding system accounts and `ACC-SYSTEM[0-9]{2}`) |
 
 ---
 
 ## Detailed Threat Register
 
-### THR-01: Unauthorised Account Access
-- **Attack Scenario**: A malicious actor or authenticated account holder submits a transfer or withdrawal request specifying an account identifier belonging to another customer (`source_account_id`), attempting to drain third-party funds.
-- **Planned Mitigation**: Server-side authorization resolution on every request. Accounts will be cryptographically bound to authenticated user identities. The database transaction will verify ownership inside the row lock before evaluating balances or writing ledger debits.
-- **Implemented Defenses (Task 02)**: Strict Argon2id password hashing, generic HTTP 401 unauthenticated errors (preventing user enumeration), in-memory JWT storage on client, and server-side `is_active` validation that immediately revokes access if an account is disabled.
+### THR-01: Unauthorised Account Access & Account Enumeration
+- **Attack Scenario**: A malicious actor or authenticated account holder submits a request targeting an account identifier belonging to another customer (`id`), attempting to enumerate existing account numbers or access private balance and transaction data.
+- **Implemented Defenses (Task 02 & Task 03)**:
+  1. Accounts are strictly bound to authenticated user identities (`owner_id = current_user.id`).
+  2. Account Holders querying non-owned accounts (`GET /api/v1/accounts/{id}` or `GET /api/v1/accounts/{id}/ledger`) receive **`HTTP 404 Not Found`**, completely eliminating timing and enumeration side channels.
+  3. `GET /api/v1/accounts` automatically filters and returns only self-owned accounts for Account Holders.
 - **Verification Tests**:
-  - `backend/tests/unit/test_passwords.py`: Argon2id salt randomness, constant-time verification.
-  - `backend/tests/unit/test_tokens.py`: JWT signature verification, expiration and tamper rejection.
-  - `backend/tests/integration/test_auth_rbac_integration.py`: `test_login_wrong_password_returns_generic_401`, `test_login_nonexistent_user_returns_generic_401`, `test_inactive_user_cannot_login`, `test_inactive_user_with_previously_issued_token_rejected_server_side`.
-- **Current Status**: **Partially Mitigated (Task 02)** — Authentication and session controls operational; account-level ownership binding scheduled for Task 03.
+  - `backend/tests/integration/test_accounts_integration.py::test_group_a_ownership_isolation_and_404_anti_enumeration`.
+- **Current Status**: **Mitigated (Task 03)**.
 
 ---
 
 ### THR-02: Concurrent Withdrawals (Race Condition / Double Spend)
-- **Attack Scenario**: Two withdrawal requests of \$100 arrive simultaneously for an account with an available balance of \$100. Both requests read the balance concurrently (\$100), both pass the sufficiency check, and both commit debits, driving the account balance to -\$100.
-- **Planned Mitigation**: Pessimistic row-level locking (`SELECT ... FOR UPDATE`) ordered deterministically by account ID to prevent deadlocks, combined with database-level check constraints (`CHECK (balance >= 0)`). Balances will be derived or atomically adjusted within strict ACID transactions.
-- **Verification Test**: Multithreaded concurrent test using `concurrent.futures` firing 20 simultaneous requests against a single balance; exactly one must succeed, 19 must fail with refused attempt records.
-- **Current Status**: **Identified / Planned** — Core transaction manager and row locking scheduled for Task 03.
+- **Attack Scenario**: Two withdrawal requests of ₹100 arrive simultaneously for an account with an available balance of ₹100. Both requests read the balance concurrently (₹100), both pass the sufficiency check, and both commit debits, driving the account balance to -₹100.
+- **Planned Mitigation**: Pessimistic row-level locking (`SELECT ... FOR UPDATE`) ordered deterministically by account ID to prevent deadlocks, combined with database-level check constraints (`chk_customer_balance_non_negative`). Balances will be derived or atomically adjusted within strict ACID transactions.
+- **Current Status**: **Identified / Foundation Established** — Transaction manager and row locking scheduled for Task 04.
 
 ---
 
 ### THR-03: Duplicate Money Movement (Replays & Retries)
-- **Attack Scenario**: A client initiates a \$500 payment. Due to network latency, the HTTP connection drops before the client receives the response. The client retries the request with the same idempotency key, resulting in two payments sent to the payee.
-- **Planned Mitigation**: Client-supplied `Idempotency-Key` persisted in an atomic idempotency table inside the same database transaction as the financial movement. If a duplicate key arrives:
-  - If the original transaction succeeded, the server replays the original response payload without re-executing ledger writes.
-  - If the original transaction is currently in-flight, subsequent requests receive an `HTTP 409 Conflict` or await the outcome.
-- **Verification Test**: Automated test sending identical requests with identical keys concurrently and sequentially; verifies money moves exactly once and duplicate attempt is flagged in audit logs.
-- **Current Status**: **Identified / Planned** — Idempotency repository and lifecycle management scheduled for Task 03.
+- **Attack Scenario**: A client initiates a ₹500 payment. Due to network latency, the HTTP connection drops before the client receives the response. The client retries the request with the same idempotency key, resulting in two payments sent to the payee.
+- **Planned Mitigation**: Client-supplied `Idempotency-Key` persisted in an atomic idempotency table inside the same database transaction as the financial movement. If a duplicate key arrives, the original response is replayed without re-executing ledger writes.
+- **Current Status**: **Identified / Foundation Established** — Scheduled for Task 04.
 
 ---
 
 ### THR-04: Negative Balances
 - **Attack Scenario**: An account balance is driven below zero through rounding errors, fee additions, uncoordinated refunds, or concurrent races.
-- **Planned Mitigation**: Enforce zero-floor invariants at three layers:
-  1. Application business validation inside the repository layer.
-  2. SQL column check constraint: `CONSTRAINT chk_balance_non_negative CHECK (balance >= 0)`.
-  3. Double-entry validation: `SUM(debits) - SUM(credits) == 0` for all transactions.
-- **Verification Test**: Automated test attempting a withdrawal exceeding the balance by 1 cent, and a direct database SQL update attempting to force a negative balance; both must be rejected.
-- **Current Status**: **Identified / Planned** — Account schemas and database constraints scheduled for Task 02.
+- **Implemented Defenses (Task 03)**:
+  1. SQL Check Constraint: `CONSTRAINT chk_customer_balance_non_negative CHECK (account_type NOT IN ('customer_checking', 'customer_savings') OR balance >= 0)`.
+  2. Currency Constraint: `CONSTRAINT chk_account_currency CHECK (currency = 'INR')`.
+  3. Account Number Constraint: `CONSTRAINT chk_account_number_format CHECK (account_number ~ '^ACC-[A-Z0-9]{8}$')`.
+  4. Positive Ledger Entry Amount: `CONSTRAINT chk_ledger_entry_amount_positive CHECK (amount > 0)`.
+  5. Zero-balance initialization: newly created accounts strictly initialize at ₹0.00 via database-side `DEFAULT 0.00`.
+- **Verification Tests**:
+  - `backend/tests/integration/test_accounts_integration.py::test_group_a_zero_balance_account_creation_api`.
+  - `backend/tests/integration/test_accounts_integration.py::test_group_a_privilege_and_trigger_enforcement_under_runtime_role`.
+- **Current Status**: **Mitigated (Task 03)**.
 
 ---
 
 ### THR-05: Ledger Modification or Deletion (Silent Tampering)
-- **Attack Scenario**: A rogue database administrator, application bug, or SQL injection executes `UPDATE` or `DELETE` on the `ledger_entries` or `statements` tables to conceal an illicit disbursement.
-- **Planned Mitigation**: 
+- **Attack Scenario**: A rogue database administrator, application bug, or SQL injection executes `UPDATE`, `DELETE`, or `TRUNCATE` on `ledger_entries` or `ledger_transactions` to conceal an illicit disbursement.
+- **Implemented Defenses (Task 03)**:
   1. The financial ledger is strictly **append-only**.
-  2. PostgreSQL table-level privilege revocation: application user is granted only `INSERT` and `SELECT` on `ledger_entries` (no `UPDATE` or `DELETE`).
-  3. Database trigger rejecting any `UPDATE` or `DELETE` statement.
-  4. Cryptographic chaining: each ledger posting contains a SHA-256 hash of the previous ledger row (`prev_hash`), creating an immutable tamper-evident chain.
-- **Verification Test**: Automated test asserting that `UPDATE` or `DELETE` on `ledger_entries` raises an unhandled database exception and fails.
-- **Current Status**: **Identified / Planned** — Double-entry ledger architecture scheduled for Task 04.
+  2. PostgreSQL table-level privileges: table-level `INSERT`, `UPDATE`, `DELETE`, and `TRUNCATE` privileges on `ledger_entries` and `ledger_transactions` are revoked from the runtime role (`ledgerline_app`) and `PUBLIC`.
+  3. Row-level engine triggers (`trg_protect_ledger_entries_row`, `trg_protect_ledger_transactions_row`) unconditionally raise exceptions on any `UPDATE` or `DELETE`.
+  4. Statement-level engine triggers (`trg_protect_ledger_entries_truncate`, `trg_protect_ledger_transactions_truncate`) unconditionally raise exceptions on any `TRUNCATE`.
+- **Verification Tests**:
+  - `backend/tests/integration/test_accounts_integration.py::test_group_a_effective_postgresql_privileges`.
+  - `backend/tests/integration/test_accounts_integration.py::test_group_b_immutability_triggers_on_actual_rows`.
+- **Current Status**: **Mitigated (Task 03)** (Cryptographic hash chaining scheduled for Task 05).
 
 ---
 
 ### THR-06: Privilege Escalation
-- **Attack Scenario**: An Account Holder role calls administrative endpoints (e.g., user provisioning, account adjustments) or an Auditor attempts to execute money transfers or modify system state.
-- **Planned Mitigation**: Role-based access control (RBAC) enforced via FastAPI dependency injection at the endpoint route level before handler execution. Roles:
-  - `Admin`: User provisioning, policy management, system monitoring.
-  - `AccountHolder`: Transfer, deposit, withdrawal initiation on owned accounts only.
-  - `Auditor`: Read-only access to directory, statements, invariants, and compliance records.
-- **Implemented Defenses (Task 02)**: Route-level `require_role(...)` dependency factory verifying token claims against live DB status. Administrative creation endpoints restrict non-admins (`HTTP 403 Forbidden`). Directory listing endpoints restrict Account Holders (`HTTP 403 Forbidden`).
+- **Attack Scenario**: An Account Holder role calls administrative endpoints (e.g. status transition, user provisioning) or an Auditor attempts to create accounts.
+- **Implemented Defenses (Task 02 & Task 03)**:
+  1. Route-level `require_role(...)` dependency factory verifying token claims against live DB status.
+  2. Account lifecycle updates (`PATCH /api/v1/accounts/{id}/status`) strictly require `Admin` role. Account Holders and Auditors receive `HTTP 403 Forbidden`.
+  3. Account creation (`POST /api/v1/accounts`) is denied to Auditors (`HTTP 403 Forbidden`).
+  4. Closed accounts are strictly terminal; reopening is rejected with `HTTP 400 Bad Request`.
+  5. Account closure strictly requires `balance == 0.00`.
 - **Verification Tests**:
-  - `backend/tests/integration/test_auth_rbac_integration.py`: `test_admin_can_provision_new_user`, `test_auditor_cannot_provision_user`, `test_account_holder_cannot_provision_user`, `test_admin_can_list_users`, `test_auditor_can_list_users`, `test_account_holder_cannot_list_users`.
-- **Current Status**: **Mitigated (Task 02)** — RBAC enforcement operational and tested across all roles.
+  - `backend/tests/unit/test_account_lifecycle_unit.py`.
+  - `backend/tests/integration/test_accounts_integration.py::test_group_a_role_based_restrictions_and_lifecycle`.
+- **Current Status**: **Mitigated (Task 02 & Task 03)**.
 
 ---
 
 ### THR-07: Forged Requests & Parameter Tampering
-- **Attack Scenario**: An attacker submits negative transfer amounts (`-500.00`), floating-point numbers designed to trigger rounding flaws (`10.0000001`), or oversized payloads to crash the server.
-- **Planned Mitigation**: Strict Pydantic v2 schemas validating positive integers (representing minor currency units, e.g. cents/paise) or fixed-precision `Decimal` values. String sanitization and UUID validation on all entity IDs.
-- **Verification Test**: Unit and API tests submitting invalid values, negative amounts, zero amounts, and SQL injection strings; all must be rejected at the boundary with HTTP 422 Unprocessable Entity.
-- **Current Status**: **Identified / Planned** — Base schemas created; financial transfer schemas scheduled for Task 03.
+- **Attack Scenario**: An attacker submits non-INR currencies, floating-point numbers designed to trigger rounding flaws (`10.0000001`), opening balance amounts in account creation payloads, or malformed schemas.
+- **Implemented Defenses (Task 03)**:
+  1. Pydantic v2 schemas with `ConfigDict(extra="forbid")` rejecting any extraneous fields (e.g. `balance`).
+  2. Currency validation strictly enforcing `"INR"`.
+  3. Account type validation strictly permitting only customer accounts (`customer_checking`, `customer_savings`) via API.
+  4. Fixed-precision `Decimal(20, 2)` arithmetic eliminating binary float rounding issues.
+- **Verification Tests**:
+  - `backend/tests/unit/test_monetary_decimal.py`.
+  - `backend/tests/unit/test_account_schemas.py`.
+- **Current Status**: **Mitigated (Task 03)**.
 
 ---
 
 ### THR-08: Database Failure & Connection Outages
-- **Attack Scenario**: The PostgreSQL server crashes, exhausts its connection pool, or becomes temporarily unreachable due to network partitions, causing transactions to fail halfway or exposing sensitive stack traces and credentials.
-- **Planned Mitigation**:
-  1. Synchronous SQLAlchemy connection pooling with pre-ping validation (`pool_pre_ping=True`) to detect dropped sockets.
-  2. Safe exception handling in repositories: operational exceptions are captured, masked, and returned as HTTP 503 Service Unavailable without leaking credentials, internal paths, or SQL statements.
-  3. Strict transaction rollback (`finally: db.close()` / `db.rollback()`) on any error during execution.
-- **Verification Test**: `test_real_postgres_invalid_configuration_handled_safely` executed against an unreachable port, confirming HTTP 503 response and zero credential leakage.
-- **Current Status**: **Mitigated (Foundation Phase)** — Verified via automated integration tests `test_health_postgres_integration.py`.
+- **Attack Scenario**: PostgreSQL server crashes or network partitions cause partial transactions or credential exposure.
+- **Implemented Defenses**: Synchronous connection pooling with `pool_pre_ping=True`, masked operational errors, and strict transaction rollback.
+- **Current Status**: **Mitigated (Foundation Phase)**.
 
 ---
 
-## Known Accepted Risks (Foundation Phase)
-1. **Plain HTTP in Local Development**: Local testing runs over plain HTTP (`http://127.0.0.1:8000`). TLS termination will be enforced in production deployment via reverse proxy (Nginx / Caddy / Cloud Provider).
-2. **Synchronous Request Processing**: Synchronous database drivers (`psycopg`) are deliberately chosen to ensure serializable, predictable ACID transaction lifecycles that can be rigorously defended during code review. High-concurrency scalability will be managed via SQLAlchemy connection pooling.
+### THR-09: Direct Balance Modification & System Account Spoofing
+- **Attack Scenario**: An attacker exploits the application database role to directly update `accounts.balance` or insert spoofed system accounts (e.g. `system_reserve` or reserved account numbers `ACC-SYSTEM01`).
+- **Implemented Defenses (Task 03)**:
+  1. **Column-Level Privilege Isolation**: The application runtime role (`ledgerline_app`) is granted `INSERT` only on approved metadata columns (strictly omitting `balance`), and `UPDATE` only on `(status, updated_at)`. Direct `balance` updates or inserts are rejected at PostgreSQL's permission check.
+  2. **System Account Creation Trigger**: `trg_enforce_account_creation_permissions` rejects any insertion of `system_reserve` or `internal_clearing` accounts or account numbers matching `ACC-SYSTEM[0-9]{2}` by any role other than the migration owner (`ledgerline_owner`).
+  3. **Role Separation**: Migration owner (`ledgerline_owner`) and runtime role (`ledgerline_app`) are completely isolated with `NOINHERIT`, `NOSUPERUSER`, `NOCREATEROLE`, `NOCREATEDB`, `NOREPLICATION`, `NOBYPASSRLS`, and zero role memberships.
+- **Verification Tests**:
+  - `backend/tests/integration/test_accounts_integration.py::test_group_a_privilege_and_trigger_enforcement_under_runtime_role`.
+  - `backend/tests/integration/test_accounts_integration.py::test_group_b_owner_role_system_account_creation_trigger`.
+- **Current Status**: **Mitigated (Task 03)**.
+
+---
+
+## Known Accepted Risks
+1. **Plain HTTP in Local Development**: Local testing runs over plain HTTP (`http://127.0.0.1:8000`). TLS termination will be enforced in production deployment via reverse proxy.
+2. **Synchronous Request Processing**: Synchronous database drivers (`psycopg`) ensure serializable, predictable ACID transaction lifecycles.

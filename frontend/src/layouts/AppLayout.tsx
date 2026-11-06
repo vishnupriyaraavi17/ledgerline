@@ -128,15 +128,20 @@ export const AppLayout: React.FC = () => {
               <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 rounded font-semibold">Task 02</span>
             </NavLink>
 
-            {/* Future Modules - Strictly unbuilt per Task 02 constraint */}
-            <span
-              className="px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-400 cursor-not-allowed inline-flex items-center gap-1.5"
-              title="Accounts & Balances module will be implemented in a subsequent approved task."
+            <NavLink
+              to="/accounts"
+              className={({ isActive }) =>
+                `px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition inline-flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`
+              }
             >
               <BookOpen className="w-4 h-4" />
               <span>Accounts</span>
-              <span className="text-[10px] bg-slate-100 px-1 rounded text-slate-400">Task 03</span>
-            </span>
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 rounded font-semibold">Task 03</span>
+            </NavLink>
 
             <span
               className="px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-400 cursor-not-allowed inline-flex items-center gap-1.5"
