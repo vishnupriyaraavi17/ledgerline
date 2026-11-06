@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     POSTGRES_SERVER: str = "127.0.0.1"
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str = "ledgerline_user"
-    POSTGRES_PASSWORD: str = "ledgerline_secure_pass_2026"
+    POSTGRES_PASSWORD: str = ""
     POSTGRES_DB: str = "ledgerline"
 
     @property

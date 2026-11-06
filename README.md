@@ -140,7 +140,7 @@ BACKEND_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 POSTGRES_SERVER="127.0.0.1"
 POSTGRES_PORT=5432
 POSTGRES_USER="ledgerline_user"
-POSTGRES_PASSWORD="ledgerline_secure_pass_2026"
+POSTGRES_PASSWORD="your_secure_password_here"
 POSTGRES_DB="ledgerline"
 
 VITE_API_URL="http://127.0.0.1:8000/api/v1"
@@ -161,7 +161,7 @@ Docker Compose starts PostgreSQL 17 on port 5432 with health checks and persiste
 If using a native PostgreSQL installation:
 ```bash
 # Connect to PostgreSQL as superuser and create dedicated database and user:
-psql -U postgres -h 127.0.0.1 -p 5432 -c "CREATE USER ledgerline_user WITH PASSWORD 'ledgerline_secure_pass_2026';"
+psql -U postgres -h 127.0.0.1 -p 5432 -c "CREATE USER ledgerline_user WITH PASSWORD 'your_secure_password_here';"
 psql -U postgres -h 127.0.0.1 -p 5432 -c "CREATE DATABASE ledgerline WITH OWNER = ledgerline_user;"
 psql -U postgres -h 127.0.0.1 -p 5432 -c "GRANT ALL PRIVILEGES ON DATABASE ledgerline TO ledgerline_user;"
 ```
