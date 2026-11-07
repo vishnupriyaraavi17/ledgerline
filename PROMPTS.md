@@ -306,6 +306,70 @@ This log records interactions with AI assistants throughout the construction of 
   - Frontend Build: `npm run build` compiled in 3.45s with zero errors.
 - **Commit Link**: `2db8bc8`
 
+---
+
+### Entry 07 — 2026-11-07
+- **Task / Goal**: Task 07: Statements & Audit History (Account statement generation with derived opening/closing/running balances from double-entry ledger entries, operational recording of refused and unsuccessful financial attempts without ledger contamination, REPEATABLE READ READ ONLY snapshot isolation, pagination-invariant running balances, RFC 4180 CSV export with spreadsheet formula injection protection, dual-account refusal visibility, and frontend statements dashboard).
+- **Prompt Given**:
+  > "# Task 07 — Implementation Authorization
+  > The corrected Task 07 implementation plan in implementation_plan.md has been reviewed and APPROVED.
+  > You are explicitly authorized to begin implementation of Task 07: Statements & Audit History.
+  > Follow the approved plan exactly, with these additional implementation safeguards:
+  > 1. Apply the customer-account credit-minus-debit balance formula only to customer accounts. Do not expose system accounts through customer statements or apply an incorrect normal-balance formula to them.
+  > 2. Ensure deterministic ledger-entry ordering using timestamps and stable tie-breakers such as sequence and entry ID.
+  > 3. Protect CSV exports against spreadsheet formula injection while preserving RFC 4180 formatting.
+  > 4. Verify the actual idempotency-conflict execution path before implementing its refusal-recording hook.
+  > 5. Preserve every existing invariant from Tasks 01–06.
+  > Implementation rules: Implement only Task 07. Follow the exact files and scope identified in the approved plan. Do not redesign completed tasks. Do not introduce unrelated features. Do not weaken database privileges, financial invariants, or authorization..."
+- **AI Output Summary**:
+  The AI implemented:
+  1. *Alembic Migration 0007 (`0007_statements_refusals.py`)*:
+     - Created `public.refused_operations` table with UUID primary key, `ON DELETE RESTRICT` foreign keys to `accounts` (`account_id` and optional `counterparty_account_id`), check constraints (`chk_refusal_currency`, `chk_refusal_amount_positive`), and composite indexes on `(account_id, created_at)` and `(counterparty_account_id, created_at)`.
+     - Created immutability triggers: `trg_protect_refused_operations_row` and `trg_protect_refused_operations_truncate`.
+     - Granted least-privilege `SELECT, INSERT` to runtime role `ledgerline_app`.
+  2. *Data Models & Schemas (`backend/app/models/refusal.py`, `backend/app/schemas/statement.py`)*:
+     - `RefusedOperation` model with relationships and constraints.
+     - `StatementTransactionItem`, `RefusedAttemptItem`, `StatementSummary`, `StatementPeriod`, `AccountStatementResponse` schemas with timezone-aware validation and strict interval verification ($start\_date < end\_date$).
+  3. *Repositories (`backend/app/repositories/refusal.py`, `backend/app/repositories/statement.py`)*:
+     - `RefusalRepository.record_refusal()`: records refusal operations via an independent database session (`SessionLocal`) with safe primitive extractions (UUIDs, Decimals, strings, SHA-256 idempotency key hash) to avoid ORM expiration issues following transaction rollback.
+     - `RefusalRepository.list_refusals_for_account()`: queries `(account_id = :id OR counterparty_account_id = :id)` so both sender and recipient can see relevant refused attempts.
+     - `StatementRepository.compute_opening_balance()`: computes net sum of credits minus debits strictly prior to $start\_date$ using SQL `SUM(CASE WHEN direction = 'credit' THEN amount ELSE -amount END)`.
+     - `StatementRepository.fetch_period_entries()`: queries period entries with deterministic ordering (`created_at ASC, sequence ASC, id ASC`) and counterparty resolution.
+  4. *Services & Transfer Refusal Hooks (`backend/app/services/statement.py`, `backend/app/services/transfer.py`)*:
+     - `StatementService.generate_statement()`: executes under `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;`, performs full-period balance and running balance calculations prior to pagination slicing, strictly rejects system accounts (`ACC-SYSTEM01`, `ACC-SYSTEM02`) with HTTP 400.
+     - `StatementService.export_statement_csv()`: RFC 4180 CSV generation with formula injection sanitization neutralizing characters (`=`, `+`, `-`, `@`, `\t`, `\r`) with a leading single quote (`'`).
+     - `TransferService`: integrated hooks to record refusals for `INSUFFICIENT_FUNDS`, `ACCOUNT_FROZEN`, `DESTINATION_FROZEN`, and `IDEMPOTENCY_CONFLICT`.
+  5. *REST API Endpoints (`backend/app/api/v1/endpoints/statements.py`)*:
+     - `GET /api/v1/accounts/{id}/statement` and `GET /api/v1/accounts/{id}/statement/export` mounted under `/accounts`, protected with HTTP 404 anti-enumeration and Account Holder ownership enforcement.
+  6. *Frontend Statements Dashboard (`frontend/src/pages/Statements.tsx`)*:
+     - Account selector, date preset buttons (Current Month, Last 30 Days, Year-to-Date, Full Lifetime), 5-card financial summary (Opening Balance, Total Inflow, Total Outflow, Net Change, Closing Balance), dual activity tabs ("Posted Transactions" vs "Refused Attempts"), pagination controls, CSV download trigger, and print/export stylesheet.
+  7. *Automated Test Suite*:
+     - 9 unit tests (`test_statement_calculations.py`, `test_statement_schemas.py`) and 10 PostgreSQL integration tests (`test_statements_integration.py`).
+     - Total: 168 tests passing (83 unit + 85 integration) with 100% pass rate.
+- **Specific Issues Discovered**:
+  1. *Alembic `version_num` Column Length Limit*: PostgreSQL's `alembic_version.version_num` is `character varying(32)`. The original migration identifier `0007_statements_and_refused_operations` (38 characters) triggered `psycopg.errors.StringDataRightTruncation: value too long for type character varying(32)`.
+  2. *SQLAlchemy `case()` Syntax*: Using `func.case(...)` with `else_` raised `TypeError: Function.__init__() got an unexpected keyword argument 'else_'`.
+  3. *ORM Instance Expiration on Rollback*: Invoking `db.rollback()` expired attached ORM instances (`current_user`, `customer_acc`), raising `DetachedInstanceError` when attributes were accessed in the refusal recorder.
+  4. *TypeScript Unused Imports*: Vite build flagged unused icons and variables in `Statements.tsx`, and `apiService.listAccounts` method mismatch.
+  5. *Task 06 Alembic Downgrade Test Assumption Drift*: In `test_audit_integration.py`, `command.downgrade(alembic_cfg, "-1")` downgraded revision `0007` to `0006` instead of testing `0006`'s downgrade to `0005`.
+- **Corrections Applied**:
+  1. Shortened Alembic revision identifier to `0007_statements_refusals` (24 characters), which fits well within the 32-character boundary.
+  2. Changed import to `from sqlalchemy import case` and used proper `case((cond1, val1), (cond2, val2), else_=val3)`.
+  3. Extracted safe primitive values (`UUID`, `Decimal`, strings, SHA-256 key hash) prior to calling `db.rollback()`.
+  4. Removed unused TypeScript declarations and used `apiService.getAccounts(0, 100)`.
+  5. Updated `test_audit_integration.py` to downgrade explicitly to `"0005_idempotency_records"`.
+  6. Transitioned self-transfer enforcement from Pydantic schema rejection to service-level business refusal path with `SELF_TRANSFER_PROHIBITED` recording in `refused_operations`.
+  7. Added comprehensive integration tests for `ACCOUNT_CLOSED`, `DESTINATION_CLOSED`, and `SELF_TRANSFER_PROHIBITED` refusal scenarios.
+- **Verification Performed**:
+  - Database Migration: `alembic upgrade head` -> `alembic downgrade -1` -> `alembic upgrade head` verified clean against live PostgreSQL 17 (`0007_statements_refusals`).
+  - Unit Tests: 83 passed (`pytest backend/tests/unit -v`).
+  - PostgreSQL Integration Tests: 88 passed (`pytest backend/tests/integration -v`).
+  - Full Backend Suite: 171 passed (0 failed).
+  - Frontend Production Build: `npm run build` compiled cleanly with zero errors or TypeScript warnings.
+- **Commit Link**: `e45109c`
+
+---
+
 
 
 
