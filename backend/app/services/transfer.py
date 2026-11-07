@@ -1,0 +1,338 @@
+import uuid
+from decimal import Decimal
+from typing import List, Tuple
+from fastapi import HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from backend.app.models.user import User, UserRole
+from backend.app.models.account import Account, AccountType, AccountStatus
+from backend.app.models.ledger import LedgerTransaction, TransactionType
+from backend.app.schemas.transfer import (
+    DepositRequest,
+    WithdrawRequest,
+    TransferRequest,
+)
+from backend.app.repositories.ledger import ledger_repository
+
+
+class TransferService:
+    """
+    Business logic and orchestration for financial operations:
+    - Deposits (external simulated -> customer checking/savings via ACC-SYSTEM02)
+    - Withdrawals (customer checking/savings -> external simulated via ACC-SYSTEM02)
+    - Transfers (customer -> customer)
+    - Journal inspection with RBAC and anti-enumeration protections.
+    """
+
+    @staticmethod
+    def deposit(
+        db: Session, current_user: User, req: DepositRequest
+    ) -> LedgerTransaction:
+        # RBAC Check: Auditors cannot perform financial operations
+        if current_user.role == UserRole.AUDITOR:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Auditors are not permitted to perform financial operations",
+            )
+
+        # Retrieve and lock customer account
+        customer_acc = db.scalar(
+            select(Account).where(Account.id == req.account_id).with_for_update(of=Account)
+        )
+        if not customer_acc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Account not found",
+            )
+
+        # Anti-Enumeration: Account Holder can only deposit to their own accounts
+        if current_user.role == UserRole.ACCOUNT_HOLDER:
+            if customer_acc.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Account not found",
+                )
+
+        # Account type check: Customer accounts only
+        if customer_acc.account_type not in (
+            AccountType.CUSTOMER_CHECKING,
+            AccountType.CUSTOMER_SAVINGS,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deposits can only be performed on customer accounts",
+            )
+
+        # Status check
+        if customer_acc.status != AccountStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts",
+            )
+
+        # Resolve system clearing transit account
+        clearing_acc = db.scalar(
+            select(Account).where(Account.account_number == "ACC-SYSTEM02").with_for_update(of=Account)
+        )
+        if not clearing_acc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="System clearing account ACC-SYSTEM02 is not configured",
+            )
+
+        ref = ledger_repository.generate_unique_reference(db)
+        desc = req.description or f"Deposit of ₹{req.amount} to {customer_acc.account_number}"
+
+        # Double-entry posting:
+        # Leg 1: DEBIT ACC-SYSTEM02 (Asset/Transit increases with debit)
+        # Leg 2: CREDIT customer account (Liability increases with credit)
+        txn = ledger_repository.create_transaction_with_entries(
+            db=db,
+            reference=ref,
+            transaction_type=TransactionType.SETTLEMENT,
+            description=desc,
+            debit_account_id=clearing_acc.id,
+            credit_account_id=customer_acc.id,
+            amount=req.amount,
+        )
+        db.commit()
+
+        # Re-query with eager-loaded entries
+        return ledger_repository.get_transaction_by_id(db, txn.id)  # type: ignore[return-value]
+
+    @staticmethod
+    def withdraw(
+        db: Session, current_user: User, req: WithdrawRequest
+    ) -> LedgerTransaction:
+        # RBAC Check: Auditors cannot perform financial operations
+        if current_user.role == UserRole.AUDITOR:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Auditors are not permitted to perform financial operations",
+            )
+
+        # Retrieve and lock customer account
+        customer_acc = db.scalar(
+            select(Account).where(Account.id == req.account_id).with_for_update(of=Account)
+        )
+        if not customer_acc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Account not found",
+            )
+
+        # Anti-Enumeration: Account Holder can only withdraw from their own accounts
+        if current_user.role == UserRole.ACCOUNT_HOLDER:
+            if customer_acc.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Account not found",
+                )
+
+        # Account type check: Customer accounts only
+        if customer_acc.account_type not in (
+            AccountType.CUSTOMER_CHECKING,
+            AccountType.CUSTOMER_SAVINGS,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Withdrawals can only be performed on customer accounts",
+            )
+
+        # Status check
+        if customer_acc.status != AccountStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts",
+            )
+
+        # Sufficiency check: Customer balance must cover withdrawal amount
+        if customer_acc.balance < req.amount:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Insufficient funds",
+            )
+
+        # Resolve system clearing transit account
+        clearing_acc = db.scalar(
+            select(Account).where(Account.account_number == "ACC-SYSTEM02").with_for_update(of=Account)
+        )
+        if not clearing_acc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="System clearing account ACC-SYSTEM02 is not configured",
+            )
+
+        ref = ledger_repository.generate_unique_reference(db)
+        desc = req.description or f"Withdrawal of ₹{req.amount} from {customer_acc.account_number}"
+
+        # Double-entry posting:
+        # Leg 1: DEBIT customer account (Liability decreases with debit)
+        # Leg 2: CREDIT ACC-SYSTEM02 (Asset/Transit decreases with credit)
+        txn = ledger_repository.create_transaction_with_entries(
+            db=db,
+            reference=ref,
+            transaction_type=TransactionType.SETTLEMENT,
+            description=desc,
+            debit_account_id=customer_acc.id,
+            credit_account_id=clearing_acc.id,
+            amount=req.amount,
+        )
+        db.commit()
+
+        # Re-query with eager-loaded entries
+        return ledger_repository.get_transaction_by_id(db, txn.id)  # type: ignore[return-value]
+
+    @staticmethod
+    def transfer(
+        db: Session, current_user: User, req: TransferRequest
+    ) -> LedgerTransaction:
+        # RBAC Check: Auditors cannot perform financial operations
+        if current_user.role == UserRole.AUDITOR:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Auditors are not permitted to perform financial operations",
+            )
+
+        # Self-transfer check
+        if req.source_account_id == req.destination_account_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Source and destination accounts must be distinct",
+            )
+
+        # Deadlock-free deterministic row locking ordered by UUID
+        first_id = min(req.source_account_id, req.destination_account_id)
+        second_id = max(req.source_account_id, req.destination_account_id)
+
+        first_acc = db.scalar(select(Account).where(Account.id == first_id).with_for_update(of=Account))
+        second_acc = db.scalar(select(Account).where(Account.id == second_id).with_for_update(of=Account))
+
+
+        source_acc = first_acc if first_id == req.source_account_id else second_acc
+        dest_acc = second_acc if first_id == req.source_account_id else first_acc
+
+        # Sourcing account existence check
+        if not source_acc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Account not found",
+            )
+
+        # Anti-Enumeration: Account Holder can only source from accounts they own
+        if current_user.role == UserRole.ACCOUNT_HOLDER:
+            if source_acc.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Account not found",
+                )
+
+        # Destination account existence check
+        if not dest_acc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Destination account not found",
+            )
+
+        # Both accounts must be customer checking or savings accounts
+        for acc, label in [(source_acc, "Source"), (dest_acc, "Destination")]:
+            if acc.account_type not in (
+                AccountType.CUSTOMER_CHECKING,
+                AccountType.CUSTOMER_SAVINGS,
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{label} account must be a customer checking or savings account",
+                )
+
+        # Status check: both accounts must be active
+        if source_acc.status != AccountStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Source account is {source_acc.status.value}; transactions are only permitted on active accounts",
+            )
+        if dest_acc.status != AccountStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Destination account is {dest_acc.status.value}; transactions are only permitted on active accounts",
+            )
+
+        # Sufficiency check: Source account balance must cover transfer amount
+        if source_acc.balance < req.amount:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Insufficient funds",
+            )
+
+        ref = ledger_repository.generate_unique_reference(db)
+        desc = (
+            req.description
+            or f"Transfer of ₹{req.amount} from {source_acc.account_number} to {dest_acc.account_number}"
+        )
+
+        # Double-entry posting:
+        # Leg 1: DEBIT source account (Liability decreases with debit)
+        # Leg 2: CREDIT destination account (Liability increases with credit)
+        txn = ledger_repository.create_transaction_with_entries(
+            db=db,
+            reference=ref,
+            transaction_type=TransactionType.TRANSFER,
+            description=desc,
+            debit_account_id=source_acc.id,
+            credit_account_id=dest_acc.id,
+            amount=req.amount,
+        )
+        db.commit()
+
+        # Re-query with eager-loaded entries
+        return ledger_repository.get_transaction_by_id(db, txn.id)  # type: ignore[return-value]
+
+    @staticmethod
+    def get_transaction(
+        db: Session, current_user: User, reference: str
+    ) -> LedgerTransaction:
+        txn = ledger_repository.get_transaction_by_reference(db, reference)
+        if not txn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transaction not found",
+            )
+
+        # Anti-Enumeration for Account Holder:
+        # Must own at least one account associated with this transaction's entries
+        if current_user.role == UserRole.ACCOUNT_HOLDER:
+            user_account_ids = set(
+                db.scalars(
+                    select(Account.id).where(Account.owner_id == current_user.id)
+                ).all()
+            )
+            txn_account_ids = {entry.account_id for entry in txn.entries}
+            if not (user_account_ids & txn_account_ids):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Transaction not found",
+                )
+
+        return txn
+
+    @staticmethod
+    def list_transactions(
+        db: Session, current_user: User, skip: int = 0, limit: int = 50
+    ) -> Tuple[List[LedgerTransaction], int]:
+        if current_user.role == UserRole.ACCOUNT_HOLDER:
+            user_account_ids = list(
+                db.scalars(
+                    select(Account.id).where(Account.owner_id == current_user.id)
+                ).all()
+            )
+            if not user_account_ids:
+                return [], 0
+            return ledger_repository.list_transactions_for_accounts(
+                db, user_account_ids, skip=skip, limit=limit
+            )
+
+        return ledger_repository.list_all_transactions(db, skip=skip, limit=limit)
+
+
+transfer_service = TransferService()

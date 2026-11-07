@@ -125,3 +125,64 @@ This log records interactions with AI assistants throughout the construction of 
   - Integration Tests: All 10 tests across Group A (runtime role restrictions, anti-enumeration, column grants, triggers), Group B (migration seed verification, owner role system account creation, actual row immutability triggers), and Group C (Alembic downgrade/upgrade reversibility) passed.
   - Frontend Production Build: `npm run build` compiled cleanly in 2.54s with zero errors.
 - **Commit Link**: `ccfca5704d9c7ce42e05cb6089ecf91c7849e7b2`
+
+---
+
+### Entry 04 — 2026-11-07
+- **Task / Goal**: Task 04: Financial Operations (Deposits, Withdrawals, Internal Transfers, Double-Entry Postings, Atomic Transactions, Deterministic Row Locking, Exact Decimal INR Mathematics, Anti-Enumeration HTTP 404, Database Engine Balance Sync and Zero-Sum Triggers, Frontend Financial Operations UI).
+- **Prompt Given**:
+  > "Task 04 — Financial Operations Implementation Plan (Corrected) is APPROVED.
+  > You are authorized to begin implementation now.
+  > Follow the approved plan and preserve all Task 01, Task 02 and Task 03 functionality and security boundaries.
+  > Two implementation safeguards must also be included without creating another planning revision:
+  > 1. Database-level rejection of empty transactions: a transaction header with zero ledger entries must not be allowed to commit. Verify this using raw SQL under ledgerline_app.
+  > 2. SECURITY DEFINER hardening: revoke EXECUTE from PUBLIC, grant only genuinely necessary privileges, use a fixed safe search_path with pg_catalog first, and preserve the runtime role's inability to directly modify accounts.balance.
+  > Implementation instructions:
+  > - Read the approved corrected plan before coding.
+  > - Implement Task 04 only.
+  > - Do not generate another implementation plan or start another planning revision.
+  > - Do not start Task 05 or later.
+  > - Preserve exact Decimal calculations in INR."
+- **AI Output Summary**:
+  The AI implemented:
+  1. *Alembic Migration 0004 (`0004_financial_operations.py`)*:
+     - Pre-flight checks asserting migration runner is `ledgerline_owner`, runtime role is `ledgerline_app`, all 6 security attributes in `pg_roles` are false, and `pg_auth_members` count is 0.
+     - Idempotent provisioning of root clearing transit account `ACC-SYSTEM02` (`internal_clearing`, `INR`, `0.00`).
+     - Restricted column-level `INSERT` grants on `ledger_transactions` and `ledger_entries` for `ledgerline_app`.
+     - Hardened PostgreSQL `SECURITY DEFINER` function `sync_account_balance_from_ledger_entry()` with `search_path = pg_catalog, public, pg_temp`, `EXECUTE` revoked from `PUBLIC`, and attached trigger `trg_sync_account_balance`.
+     - Hardened deferred zero-sum balance constraint trigger `trg_verify_transaction_balanced` checking $\sum \text{Debits} - \sum \text{Credits} = 0.00$ on commit.
+     - Hardened deferred non-empty transaction constraint trigger `trg_verify_transaction_not_empty` rejecting headers with 0 entries on commit.
+  2. *Pydantic Schemas (`backend/app/schemas/transfer.py`)*:
+     - `validate_monetary_amount` enforcing $A > 0.00$ and scale $\le 2$ (exact paise precision, rejecting sub-paise fractions).
+     - `DepositRequest`, `WithdrawRequest`, `TransferRequest` with `extra="forbid"` and distinct account validation.
+     - `TransactionResponse` and `TransactionListResponse`.
+  3. *Persistence Layer & Business Service (`backend/app/services/transfer.py`, `backend/app/repositories/ledger.py`)*:
+     - `LedgerRepository`: `generate_unique_reference` (`TXN-[A-Z0-9]{12}`), atomic `create_transaction_with_entries`, and journal query methods.
+     - `TransferService`: Orchestrates deposit (`DEBIT ACC-SYSTEM02`, `CREDIT Customer Account`), withdrawal (`DEBIT Customer Account`, `CREDIT ACC-SYSTEM02`), and internal transfer (`DEBIT Source`, `CREDIT Destination`).
+     - Concurrency safety: Pessimistic row locking with `with_for_update(of=Account)` ordered deterministically by UUID (`min(id1, id2)` then `max(id1, id2)`), eliminating cyclic deadlocks.
+     - Anti-Enumeration: Account Holders sourcing or querying unowned accounts/transactions strictly receive `HTTP 404 Not Found`.
+  4. *REST API (`backend/app/api/v1/endpoints/transfers.py`)*:
+     - Mounted endpoints under `/api/v1/transfers` for deposits, withdrawals, transfers, and transaction journal inspection.
+  5. *Frontend Interface (`frontend/src/pages/Transfers.tsx`)*:
+     - Built comprehensive tabbed operations UI supporting Transfers, Deposits, Withdrawals, and a live Double-Entry Transaction Journal.
+     - Activated `/transfers` route in `App.tsx` and updated navigation link in `AppLayout.tsx` with `Task 04` badge.
+  6. *Automated Test Suites*:
+     - Created 30 new tests: 13 unit tests (`test_transfer_schemas.py`, `test_transfer_service_unit.py`) and 17 PostgreSQL integration tests (`test_transfers_integration.py` covering Groups A, B, C, and D).
+- **Specific Issues Discovered**:
+  1. *`FOR UPDATE` on Nullable Side of Outer Join*: Because `Account.owner` has `lazy="joined"`, executing `select(Account).with_for_update()` caused SQLAlchemy to emit `FROM accounts LEFT OUTER JOIN users ... FOR UPDATE`. PostgreSQL 17 rejected this with `FeatureNotSupported: FOR UPDATE cannot be applied to the nullable side of an outer join`.
+  2. *Deferred Constraint Evaluation in Savepoints*: PostgreSQL deferred constraint triggers evaluate at `COMMIT` rather than `RELEASE SAVEPOINT`. In nested transaction unit/integration tests, `sp.commit()` alone did not trigger the check.
+  3. *Downgrade Foreign Key Violation on Seed Account*: In migration 0004 downgrade, executing `DELETE FROM accounts WHERE account_number = 'ACC-SYSTEM02'` failed with `ForeignKeyViolation` because ledger entries generated during the test suite referenced `ACC-SYSTEM02`.
+  4. *JSX Math Expression Parsing*: In `frontend/src/pages/Transfers.tsx`, writing `($\Delta \text{Platform} = 0$)` caused Vite's JSX compiler to fail with `Cannot find name 'Platform'` because curly braces were interpreted as JavaScript expressions.
+  5. *Task 03 Legacy Test Assertion Drift*: Task 03's `test_accounts_integration.py` contained assertions expecting `ledgerline_app` to be denied all `INSERT` on ledger tables. In Task 04, column-level `INSERT` is deliberately granted to allow financial operations.
+- **Corrections Applied**:
+  1. *Explicit Table Locking in SQLAlchemy*: Updated all row-locking queries in `TransferService` to `with_for_update(of=Account)`, compiling to `FOR UPDATE OF accounts` and allowing outer joins to remain present without attempting to lock the nullable joined user table.
+  2. *Immediate Constraint Trigger Evaluation*: Updated deferred trigger integration tests to issue `SET CONSTRAINTS ALL IMMEDIATE` inside savepoints, immediately forcing PostgreSQL to evaluate deferred constraint triggers and catch violations.
+  3. *Unreferenced Check in Downgrade*: Updated migration 0004 downgrade DDL to delete `ACC-SYSTEM02` only if unreferenced (`AND NOT EXISTS (SELECT 1 FROM ledger_entries WHERE account_id = accounts.id)`), preserving referential integrity and guaranteeing reversibility.
+  4. *JSX Entity Escaping*: Replaced unescaped curly brace math notation in `Transfers.tsx` with standard HTML entities `(&Delta; Total Funds = 0.00)`.
+  5. *Updated Integration Test Assertions*: Synchronized `test_accounts_integration.py` with Task 04 privileges, verifying that `ledgerline_app` can insert valid ledger records while remaining strictly denied `UPDATE`, `DELETE`, and `TRUNCATE`.
+- **Verification Performed**:
+  - Full Test Suite: All 100 tests passed (53 unit + 47 integration) in 11.44s with zero failures.
+  - Integration Tests: All 17 Task 04 integration tests passed against live PostgreSQL 17.
+  - Migration Reversibility: `alembic downgrade -1` followed by `alembic upgrade head` executed cleanly with zero errors.
+  - Frontend Production Build: `npm run build` compiled cleanly in 6.23s.
+

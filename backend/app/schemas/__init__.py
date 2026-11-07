@@ -18,6 +18,13 @@ from backend.app.schemas.ledger import (
     LedgerTransactionResponse,
     LedgerEntryListResponse,
 )
+from backend.app.schemas.transfer import (
+    DepositRequest,
+    WithdrawRequest,
+    TransferRequest,
+    TransactionResponse,
+    TransactionListResponse,
+)
 
 __all__ = [
     "HealthResponse",
@@ -35,4 +42,9 @@ __all__ = [
     "LedgerEntryResponse",
     "LedgerTransactionResponse",
     "LedgerEntryListResponse",
+    "DepositRequest",
+    "WithdrawRequest",
+    "TransferRequest",
+    "TransactionResponse",
+    "TransactionListResponse",
 ]

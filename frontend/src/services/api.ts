@@ -9,6 +9,14 @@ import type {
   AccountStatus,
   LedgerEntryListResponse,
 } from '../types/account';
+import type {
+  DepositRequest,
+  WithdrawRequest,
+  TransferRequest,
+  TransactionResponse,
+  TransactionListResponse,
+} from '../types/transfer';
+
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/v1';
 
@@ -128,4 +136,47 @@ export const apiService = {
     });
     return response.data;
   },
+
+  /**
+   * Performs simulated deposit into customer account.
+   */
+  async deposit(data: DepositRequest): Promise<TransactionResponse> {
+    const response = await apiClient.post<TransactionResponse>('/transfers/deposit', data);
+    return response.data;
+  },
+
+  /**
+   * Performs simulated withdrawal from customer account.
+   */
+  async withdraw(data: WithdrawRequest): Promise<TransactionResponse> {
+    const response = await apiClient.post<TransactionResponse>('/transfers/withdraw', data);
+    return response.data;
+  },
+
+  /**
+   * Transfers funds between two customer accounts.
+   */
+  async transfer(data: TransferRequest): Promise<TransactionResponse> {
+    const response = await apiClient.post<TransactionResponse>('/transfers/transfer', data);
+    return response.data;
+  },
+
+  /**
+   * Retrieves transaction details by reference.
+   */
+  async getTransaction(reference: string): Promise<TransactionResponse> {
+    const response = await apiClient.get<TransactionResponse>(`/transfers/${reference}`);
+    return response.data;
+  },
+
+  /**
+   * Retrieves paginated transaction journal entries.
+   */
+  async listTransactions(skip: number = 0, limit: number = 50): Promise<TransactionListResponse> {
+    const response = await apiClient.get<TransactionListResponse>('/transfers', {
+      params: { skip, limit },
+    });
+    return response.data;
+  },
 };
+

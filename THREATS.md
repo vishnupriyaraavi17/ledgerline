@@ -10,13 +10,14 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 
 | Threat ID | Threat Category | Severity | Current Status |
 | :--- | :--- | :--- | :--- |
-| **THR-01** | Unauthorised Account Access & Account Enumeration | Critical | **Mitigated (Task 03)** (Identity-bound ownership, HTTP 404 anti-enumeration, strict Argon2id auth & JWT) |
-| **THR-02** | Concurrent Withdrawals (Race Conditions) | Critical | **Identified / Foundation Established** (Pessimistic locking & isolation scheduled for Task 04) |
-| **THR-03** | Duplicate Money Movement (Replay Attacks) | Critical | **Identified / Foundation Established** (Atomic idempotency engine scheduled for Task 04) |
-| **THR-04** | Negative Balances / Overdraft Violations | Critical | **Mitigated (Task 03)** (PostgreSQL check constraints `chk_customer_balance_non_negative`, `chk_account_currency`, database-side default `0.00`) |
-| **THR-05** | Ledger Modification or Deletion (Tampering) | Critical | **Mitigated (Task 03)** (PostgreSQL immutability triggers on row/statement levels, ledger table permissions revoked from runtime role; hash chaining scheduled for Task 05) |
-| **THR-06** | Privilege Escalation | High | **Mitigated (Task 02 & Task 03)** (Server-side RBAC dependency factory, lifecycle FSM restricted to Admin, system accounts reserved) |
-| **THR-07** | Forged Requests & Parameter Tampering | High | **Mitigated (Task 03)** (Strict Pydantic v2 validation with `extra="forbid"`, single currency INR, `Decimal(20, 2)` monetary precision) |
+| **THR-01** | Unauthorised Account Access & Account Enumeration | Critical | **Mitigated (Task 03 & Task 04)** (Identity-bound ownership, HTTP 404 anti-enumeration across accounts and transfers) |
+| **THR-02** | Concurrent Withdrawals (Race Conditions) | Critical | **Mitigated (Task 04)** (Deterministic pessimistic row locking `with_for_update(of=Account)`, pre-check sufficiency, and `chk_customer_balance_non_negative`) |
+| **THR-03** | Duplicate Money Movement (Replay Attacks) | Critical | **Identified / Foundation Established** (Atomic idempotency engine scheduled for subsequent task) |
+| **THR-04** | Negative Balances / Overdraft Violations | Critical | **Mitigated (Task 03 & Task 04)** (PostgreSQL check constraint `chk_customer_balance_non_negative`, sufficiency checks, and zero-sum deferred constraint trigger) |
+| **THR-05** | Ledger Modification or Deletion (Tampering) | Critical | **Mitigated (Task 03 & Task 04)** (PostgreSQL immutability triggers on row/statement levels, column-level least privilege; hash chaining scheduled for Task 05) |
+| **THR-06** | Privilege Escalation | High | **Mitigated (Task 02, Task 03 & Task 04)** (Server-side RBAC dependency factory, financial operations denied to Auditors, lifecycle FSM restricted to Admin) |
+| **THR-07** | Forged Requests & Parameter Tampering | High | **Mitigated (Task 03 & Task 04)** (Strict Pydantic v2 validation with `extra="forbid"`, self-transfer rejection, scale $\le 2$, single currency INR, `Decimal(20, 2)` monetary precision) |
+
 | **THR-08** | Database Failure & Connection Outages | High | **Mitigated (Foundation Phase)** (Tested via real PostgreSQL probe, pooling & error masking) |
 | **THR-09** | Direct Balance Modification & System Account Spoofing | Critical | **Mitigated (Task 03)** (PostgreSQL column-level grants excluding `balance`, trigger `trg_enforce_account_creation_permissions` guarding system accounts and `ACC-SYSTEM[0-9]{2}`) |
 
@@ -38,8 +39,17 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 
 ### THR-02: Concurrent Withdrawals (Race Condition / Double Spend)
 - **Attack Scenario**: Two withdrawal requests of ₹100 arrive simultaneously for an account with an available balance of ₹100. Both requests read the balance concurrently (₹100), both pass the sufficiency check, and both commit debits, driving the account balance to -₹100.
-- **Planned Mitigation**: Pessimistic row-level locking (`SELECT ... FOR UPDATE`) ordered deterministically by account ID to prevent deadlocks, combined with database-level check constraints (`chk_customer_balance_non_negative`). Balances will be derived or atomically adjusted within strict ACID transactions.
-- **Current Status**: **Identified / Foundation Established** — Transaction manager and row locking scheduled for Task 04.
+- **Implemented Defenses (Task 04)**:
+  1. **Deterministic Pessimistic Row Locking**: All financial operations lock customer accounts via `SELECT ... FOR UPDATE OF accounts`. For inter-account transfers involving two customer accounts, locks are ordered deterministically by UUID (`min(source_id, dest_id)` then `max(source_id, dest_id)`), completely eliminating cyclic deadlocks.
+  2. **Atomic Double-Entry Posting**: Every financial movement writes equal and opposite debit and credit entries inside an atomic ACID transaction.
+  3. **Application Sufficiency Checks**: In-flight balance sufficiency is verified within the pessimistic row lock before creating ledger entries.
+  4. **PostgreSQL Check Constraint**: `chk_customer_balance_non_negative` serves as the final database-level barrier, immediately rolling back any debit that would drive a customer balance negative.
+- **Verification Tests**:
+  - `backend/tests/integration/test_transfers_integration.py::test_group_a_successful_peer_to_peer_transfer`.
+  - `backend/tests/integration/test_transfers_integration.py::test_group_a_overdraft_withdrawal_insufficient_funds`.
+  - `backend/tests/integration/test_transfers_integration.py::test_group_a_overdraft_transfer_insufficient_funds`.
+- **Current Status**: **Mitigated (Task 04)**.
+
 
 ---
 

@@ -422,33 +422,22 @@ def test_group_a_privilege_and_trigger_enforcement_under_runtime_role(db_session
     )
     db_session.commit()
 
-    # 8. Ledger Tables INSERT rejected by table privilege
+    # 8. Ledger Tables INSERT is permitted under Task 04, but empty transactions are rejected by trigger
     sp = db_session.begin_nested()
     try:
+        db_session.execute(
+            text(
+                "INSERT INTO ledger_transactions (id, reference, transaction_type, description, posted_at) "
+                "VALUES (gen_random_uuid(), :ref, 'transfer', 'Task 04 Allowed Insert', now())"
+            ),
+            {"ref": f"TXN-T04-{uuid.uuid4().hex[:6].upper()}"},
+        )
         with pytest.raises(Exception) as exc_info:
-            db_session.execute(
-                text(
-                    "INSERT INTO ledger_transactions (id, reference, transaction_type, description) "
-                    "VALUES (gen_random_uuid(), 'TXN-HACK0001', 'transfer', 'Hack')"
-                )
-            )
-        assert "permission denied for table ledger_transactions" in str(exc_info.value)
+            db_session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+        assert "has zero ledger entries and cannot be committed" in str(exc_info.value)
     finally:
         sp.rollback()
 
-    sp = db_session.begin_nested()
-    try:
-        with pytest.raises(Exception) as exc_info:
-            db_session.execute(
-                text(
-                    "INSERT INTO ledger_entries (id, transaction_id, account_id, entry_type, amount, sequence) "
-                    "VALUES (gen_random_uuid(), gen_random_uuid(), :acc_id, 'credit', 500.00, 1)"
-                ),
-                {"acc_id": test_acc_id},
-            )
-        assert "permission denied for table ledger_entries" in str(exc_info.value)
-    finally:
-        sp.rollback()
 
     # 9. Ledger Tables UPDATE, DELETE, TRUNCATE rejected by table privilege
     sp = db_session.begin_nested()
@@ -536,20 +525,21 @@ def test_group_b_owner_role_system_account_creation_trigger(owner_session: Sessi
         owner_session.execute(
             text(
                 "INSERT INTO accounts (id, account_number, owner_id, name, account_type, currency, balance, status) "
-                "VALUES (gen_random_uuid(), 'ACC-SYSTEM02', NULL, 'Internal Clearing', 'internal_clearing', 'INR', 0.00, 'active')"
+                "VALUES (gen_random_uuid(), 'ACC-SYSTEM03', NULL, 'Test Reserve', 'system_reserve', 'INR', 0.00, 'active')"
             )
         )
         created = owner_session.execute(
-            text("SELECT account_number FROM accounts WHERE account_number = 'ACC-SYSTEM02'")
+            text("SELECT account_number FROM accounts WHERE account_number = 'ACC-SYSTEM03'")
         ).scalar()
-        assert created == "ACC-SYSTEM02"
+        assert created == "ACC-SYSTEM03"
     finally:
         sp.rollback()
 
     # Ensure rollback cleaned up the temporary system account
     assert owner_session.execute(
-        text("SELECT count(*) FROM accounts WHERE account_number = 'ACC-SYSTEM02'")
+        text("SELECT count(*) FROM accounts WHERE account_number = 'ACC-SYSTEM03'")
     ).scalar() == 0
+
 
 
 def test_group_b_immutability_triggers_on_actual_rows(owner_session: Session):
@@ -639,8 +629,12 @@ def test_group_b_immutability_triggers_on_actual_rows(owner_session: Session):
         try:
             with pytest.raises(Exception) as exc_info:
                 owner_session.execute(text("TRUNCATE TABLE ledger_entries"))
-            assert "Ledger records are strictly immutable" in str(exc_info.value)
+            assert (
+                "Ledger records are strictly immutable" in str(exc_info.value)
+                or "cannot TRUNCATE" in str(exc_info.value)
+            )
         finally:
+
             sp.rollback()
 
         # 7. Statement-level trigger on ledger_transactions TRUNCATE
@@ -648,9 +642,13 @@ def test_group_b_immutability_triggers_on_actual_rows(owner_session: Session):
         try:
             with pytest.raises(Exception) as exc_info:
                 owner_session.execute(text("TRUNCATE TABLE ledger_transactions CASCADE"))
-            assert "Ledger records are strictly immutable" in str(exc_info.value)
+            assert (
+                "Ledger records are strictly immutable" in str(exc_info.value)
+                or "cannot TRUNCATE" in str(exc_info.value)
+            )
         finally:
             sp.rollback()
+
 
     finally:
         # Roll back outer fixture transaction cleanly

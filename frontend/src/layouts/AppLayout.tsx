@@ -143,14 +143,21 @@ export const AppLayout: React.FC = () => {
               <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 rounded font-semibold">Task 03</span>
             </NavLink>
 
-            <span
-              className="px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-400 cursor-not-allowed inline-flex items-center gap-1.5"
-              title="Transfers & Idempotent Execution will be implemented in a subsequent approved task."
+            <NavLink
+              to="/transfers"
+              className={({ isActive }) =>
+                `px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition inline-flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`
+              }
             >
               <ArrowLeftRight className="w-4 h-4" />
               <span>Transfers</span>
-              <span className="text-[10px] bg-slate-100 px-1 rounded text-slate-400">Task 04</span>
-            </span>
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 rounded font-semibold">Task 04</span>
+            </NavLink>
+
 
             <span
               className="px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-400 cursor-not-allowed inline-flex items-center gap-1.5"
