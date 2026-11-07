@@ -185,4 +185,6 @@ This log records interactions with AI assistants throughout the construction of 
   - Integration Tests: All 17 Task 04 integration tests passed against live PostgreSQL 17.
   - Migration Reversibility: `alembic downgrade -1` followed by `alembic upgrade head` executed cleanly with zero errors.
   - Frontend Production Build: `npm run build` compiled cleanly in 6.23s.
+- **Commit Link**: `3cc89a5840615ee7ae0d268a7feeb947ebaa6199`
+
 
