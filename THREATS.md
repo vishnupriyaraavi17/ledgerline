@@ -12,7 +12,7 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 | :--- | :--- | :--- | :--- |
 | **THR-01** | Unauthorised Account Access & Account Enumeration | Critical | **Mitigated (Task 03 & Task 04)** (Identity-bound ownership, HTTP 404 anti-enumeration across accounts and transfers) |
 | **THR-02** | Concurrent Withdrawals (Race Conditions) | Critical | **Mitigated (Task 04)** (Deterministic pessimistic row locking `with_for_update(of=Account)`, pre-check sufficiency, and `chk_customer_balance_non_negative`) |
-| **THR-03** | Duplicate Money Movement (Replay Attacks) | Critical | **Identified / Foundation Established** (Atomic idempotency engine scheduled for subsequent task) |
+| **THR-03** | Duplicate Money Movement (Replay Attacks) | Critical | **Mitigated (Task 05)** (PostgreSQL-backed idempotency engine, deterministic SHA-256 canonical request fingerprinting, mandatory `Idempotency-Key` header, atomic transaction commit, pessimistic row locking `SELECT ... FOR UPDATE`, permanent audit retention with runtime DELETE denial) |
 | **THR-04** | Negative Balances / Overdraft Violations | Critical | **Mitigated (Task 03 & Task 04)** (PostgreSQL check constraint `chk_customer_balance_non_negative`, sufficiency checks, and zero-sum deferred constraint trigger) |
 | **THR-05** | Ledger Modification or Deletion (Tampering) | Critical | **Mitigated (Task 03 & Task 04)** (PostgreSQL immutability triggers on row/statement levels, column-level least privilege; hash chaining scheduled for Task 05) |
 | **THR-06** | Privilege Escalation | High | **Mitigated (Task 02, Task 03 & Task 04)** (Server-side RBAC dependency factory, financial operations denied to Auditors, lifecycle FSM restricted to Admin) |
@@ -53,10 +53,20 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 
 ---
 
-### THR-03: Duplicate Money Movement (Replays & Retries)
-- **Attack Scenario**: A client initiates a ₹500 payment. Due to network latency, the HTTP connection drops before the client receives the response. The client retries the request with the same idempotency key, resulting in two payments sent to the payee.
-- **Planned Mitigation**: Client-supplied `Idempotency-Key` persisted in an atomic idempotency table inside the same database transaction as the financial movement. If a duplicate key arrives, the original response is replayed without re-executing ledger writes.
-- **Current Status**: **Identified / Foundation Established** — Scheduled for Task 04.
+### THR-03: Duplicate Money Movement (Replay Attacks & Retries)
+- **Attack Scenario**: A client initiates a ₹500 payment. Due to network latency, the HTTP connection drops before the client receives the response. The client retries the request with the same idempotency key, resulting in two payments sent to the payee. Or a user double-clicks the transfer button, resulting in duplicate transactions.
+- **Implemented Defenses (Task 05)**:
+  1. **Mandatory Client Idempotency Key**: All financial write endpoints (`/transfers/deposit`, `/transfers/withdraw`, `/transfers/transfer`) strictly mandate an `Idempotency-Key` header (8–128 printable ASCII characters).
+  2. **Deterministic SHA-256 Canonical Fingerprinting**: Request parameters are canonicalized (method, path, sorted payload parameters, exact decimal amounts) and hashed with SHA-256. Payload modifications under an existing key are immediately rejected with `HTTP 409 Conflict`.
+  3. **Atomic Commit Boundary**: Idempotency records (`idempotency_records`) and ledger transactions/entries are written and committed within the exact same PostgreSQL database transaction. If the operation fails or rolls back, no dangling completed idempotency record remains.
+  4. **PostgreSQL Pessimistic Row Locking Concurrency Control**: Concurrent requests for the same key are deduplicated using PostgreSQL row-level locks (`SELECT ... FOR UPDATE` on `idempotency_records`). In-flight duplicates wait for the primary transaction to complete and then safely replay the committed response.
+  5. **Idempotent Replay Transparency**: Cached responses are replayed identically with the original status code, response body, and an `Idempotent-Replay: true` HTTP response header.
+  6. **Permanent Audit Retention & Least Privilege**: The application runtime role (`ledgerline_app`) is granted `SELECT, INSERT, UPDATE` on `idempotency_records`, while `DELETE` is strictly withheld. Foreign keys enforce `ON DELETE RESTRICT` on `user_id` and `transaction_id`.
+- **Verification Tests**:
+  - `backend/tests/unit/test_idempotency_fingerprint.py` (canonical deterministic SHA-256 fingerprinting).
+  - `backend/tests/unit/test_idempotency_validation.py` (header validation rules).
+  - `backend/tests/integration/test_idempotency_integration.py` (Group A: Replay; Group B: 409 Conflict; Group C: Multi-tenant isolation; Group D: Concurrency race deduplication, rollback cleanup, FK ON DELETE RESTRICT, runtime DELETE denial).
+- **Current Status**: **Mitigated (Task 05)**.
 
 ---
 

@@ -15,6 +15,7 @@ import type {
   TransferRequest,
   TransactionResponse,
   TransactionListResponse,
+  FinancialOperationResult,
 } from '../types/transfer';
 
 
@@ -138,27 +139,51 @@ export const apiService = {
   },
 
   /**
-   * Performs simulated deposit into customer account.
+   * Performs simulated deposit into customer account with mandatory client-generated idempotency key.
    */
-  async deposit(data: DepositRequest): Promise<TransactionResponse> {
-    const response = await apiClient.post<TransactionResponse>('/transfers/deposit', data);
-    return response.data;
+  async deposit(data: DepositRequest, idempotencyKey: string): Promise<FinancialOperationResult> {
+    const response = await apiClient.post<TransactionResponse>('/transfers/deposit', data, {
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+      },
+    });
+    const replayHeader = response.headers['idempotent-replay'] || response.headers['Idempotent-Replay'];
+    return {
+      transaction: response.data,
+      isReplay: replayHeader === 'true',
+    };
   },
 
   /**
-   * Performs simulated withdrawal from customer account.
+   * Performs simulated withdrawal from customer account with mandatory client-generated idempotency key.
    */
-  async withdraw(data: WithdrawRequest): Promise<TransactionResponse> {
-    const response = await apiClient.post<TransactionResponse>('/transfers/withdraw', data);
-    return response.data;
+  async withdraw(data: WithdrawRequest, idempotencyKey: string): Promise<FinancialOperationResult> {
+    const response = await apiClient.post<TransactionResponse>('/transfers/withdraw', data, {
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+      },
+    });
+    const replayHeader = response.headers['idempotent-replay'] || response.headers['Idempotent-Replay'];
+    return {
+      transaction: response.data,
+      isReplay: replayHeader === 'true',
+    };
   },
 
   /**
-   * Transfers funds between two customer accounts.
+   * Transfers funds between two customer accounts with mandatory client-generated idempotency key.
    */
-  async transfer(data: TransferRequest): Promise<TransactionResponse> {
-    const response = await apiClient.post<TransactionResponse>('/transfers/transfer', data);
-    return response.data;
+  async transfer(data: TransferRequest, idempotencyKey: string): Promise<FinancialOperationResult> {
+    const response = await apiClient.post<TransactionResponse>('/transfers/transfer', data, {
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+      },
+    });
+    const replayHeader = response.headers['idempotent-replay'] || response.headers['Idempotent-Replay'];
+    return {
+      transaction: response.data,
+      isReplay: replayHeader === 'true',
+    };
   },
 
   /**

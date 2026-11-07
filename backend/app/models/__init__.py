@@ -6,6 +6,7 @@ from backend.app.db.base import Base
 from backend.app.models.user import User, UserRole
 from backend.app.models.account import Account, AccountType, AccountStatus
 from backend.app.models.ledger import LedgerTransaction, LedgerEntry, EntryType, TransactionType
+from backend.app.models.idempotency import IdempotencyRecord
 
 __all__ = [
     "Base",
@@ -18,4 +19,5 @@ __all__ = [
     "LedgerEntry",
     "EntryType",
     "TransactionType",
+    "IdempotencyRecord",
 ]

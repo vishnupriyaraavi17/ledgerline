@@ -1,6 +1,7 @@
+import json
 import uuid
 from decimal import Decimal
-from typing import List, Tuple
+from typing import Any, List, Optional, Tuple
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,8 +13,10 @@ from backend.app.schemas.transfer import (
     DepositRequest,
     WithdrawRequest,
     TransferRequest,
+    TransactionResponse,
 )
 from backend.app.repositories.ledger import ledger_repository
+from backend.app.repositories.idempotency import idempotency_repository
 
 
 class TransferService:
@@ -23,270 +26,499 @@ class TransferService:
     - Withdrawals (customer checking/savings -> external simulated via ACC-SYSTEM02)
     - Transfers (customer -> customer)
     - Journal inspection with RBAC and anti-enumeration protections.
+    - PostgreSQL ACID idempotency concurrency and replay deduplication.
     """
 
     @staticmethod
     def deposit(
-        db: Session, current_user: User, req: DepositRequest
-    ) -> LedgerTransaction:
-        # RBAC Check: Auditors cannot perform financial operations
-        if current_user.role == UserRole.AUDITOR:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Auditors are not permitted to perform financial operations",
+        db: Session,
+        current_user: User,
+        req: DepositRequest,
+        idempotency_key: Optional[str] = None,
+    ) -> Tuple[Any, bool]:
+        record = None
+        request_hash = None
+
+        if idempotency_key is not None:
+            canonical_data = {
+                "account_id": req.account_id,
+                "amount": req.amount,
+                "description": req.description or "",
+            }
+            request_hash = idempotency_repository.compute_canonical_fingerprint(
+                "deposit", canonical_data
             )
 
-        # Retrieve and lock customer account
-        customer_acc = db.scalar(
-            select(Account).where(Account.id == req.account_id).with_for_update(of=Account)
-        )
-        if not customer_acc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Account not found",
+            # 1. Try atomic reservation
+            record = idempotency_repository.try_create_processing_record(
+                db=db,
+                user_id=current_user.id,
+                idempotency_key=idempotency_key,
+                operation_type="deposit",
+                request_hash=request_hash,
             )
 
-        # Anti-Enumeration: Account Holder can only deposit to their own accounts
-        if current_user.role == UserRole.ACCOUNT_HOLDER:
-            if customer_acc.owner_id != current_user.id:
+            # 2. If conflict, wait on pessimistic lock of existing record
+            if not record:
+                record = idempotency_repository.get_locked_record(
+                    db=db,
+                    user_id=current_user.id,
+                    idempotency_key=idempotency_key,
+                )
+                if not record:
+                    # Previous concurrent attempt rolled back, retry claiming
+                    record = idempotency_repository.try_create_processing_record(
+                        db=db,
+                        user_id=current_user.id,
+                        idempotency_key=idempotency_key,
+                        operation_type="deposit",
+                        request_hash=request_hash,
+                    )
+                    if not record:
+                        record = idempotency_repository.get_locked_record(
+                            db=db,
+                            user_id=current_user.id,
+                            idempotency_key=idempotency_key,
+                        )
+
+            # 3. Check for replay or parameter conflict on completed record
+            if record and record.status == "completed":
+                if record.request_hash != request_hash:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Idempotency key was previously used with a different request payload.",
+                    )
+                cached_data = json.loads(record.response_body)
+                return cached_data, True
+
+        try:
+            # RBAC Check: Auditors cannot perform financial operations
+            if current_user.role == UserRole.AUDITOR:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Auditors are not permitted to perform financial operations",
+                )
+
+            # Retrieve and lock customer account
+            customer_acc = db.scalar(
+                select(Account).where(Account.id == req.account_id).with_for_update(of=Account)
+            )
+            if not customer_acc:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Account not found",
                 )
 
-        # Account type check: Customer accounts only
-        if customer_acc.account_type not in (
-            AccountType.CUSTOMER_CHECKING,
-            AccountType.CUSTOMER_SAVINGS,
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Deposits can only be performed on customer accounts",
-            )
+            # Anti-Enumeration: Account Holder can only deposit to their own accounts
+            if current_user.role == UserRole.ACCOUNT_HOLDER:
+                if customer_acc.owner_id != current_user.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Account not found",
+                    )
 
-        # Status check
-        if customer_acc.status != AccountStatus.ACTIVE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts",
-            )
-
-        # Resolve system clearing transit account
-        clearing_acc = db.scalar(
-            select(Account).where(Account.account_number == "ACC-SYSTEM02").with_for_update(of=Account)
-        )
-        if not clearing_acc:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="System clearing account ACC-SYSTEM02 is not configured",
-            )
-
-        ref = ledger_repository.generate_unique_reference(db)
-        desc = req.description or f"Deposit of ₹{req.amount} to {customer_acc.account_number}"
-
-        # Double-entry posting:
-        # Leg 1: DEBIT ACC-SYSTEM02 (Asset/Transit increases with debit)
-        # Leg 2: CREDIT customer account (Liability increases with credit)
-        txn = ledger_repository.create_transaction_with_entries(
-            db=db,
-            reference=ref,
-            transaction_type=TransactionType.SETTLEMENT,
-            description=desc,
-            debit_account_id=clearing_acc.id,
-            credit_account_id=customer_acc.id,
-            amount=req.amount,
-        )
-        db.commit()
-
-        # Re-query with eager-loaded entries
-        return ledger_repository.get_transaction_by_id(db, txn.id)  # type: ignore[return-value]
-
-    @staticmethod
-    def withdraw(
-        db: Session, current_user: User, req: WithdrawRequest
-    ) -> LedgerTransaction:
-        # RBAC Check: Auditors cannot perform financial operations
-        if current_user.role == UserRole.AUDITOR:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Auditors are not permitted to perform financial operations",
-            )
-
-        # Retrieve and lock customer account
-        customer_acc = db.scalar(
-            select(Account).where(Account.id == req.account_id).with_for_update(of=Account)
-        )
-        if not customer_acc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Account not found",
-            )
-
-        # Anti-Enumeration: Account Holder can only withdraw from their own accounts
-        if current_user.role == UserRole.ACCOUNT_HOLDER:
-            if customer_acc.owner_id != current_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Account not found",
-                )
-
-        # Account type check: Customer accounts only
-        if customer_acc.account_type not in (
-            AccountType.CUSTOMER_CHECKING,
-            AccountType.CUSTOMER_SAVINGS,
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Withdrawals can only be performed on customer accounts",
-            )
-
-        # Status check
-        if customer_acc.status != AccountStatus.ACTIVE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts",
-            )
-
-        # Sufficiency check: Customer balance must cover withdrawal amount
-        if customer_acc.balance < req.amount:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Insufficient funds",
-            )
-
-        # Resolve system clearing transit account
-        clearing_acc = db.scalar(
-            select(Account).where(Account.account_number == "ACC-SYSTEM02").with_for_update(of=Account)
-        )
-        if not clearing_acc:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="System clearing account ACC-SYSTEM02 is not configured",
-            )
-
-        ref = ledger_repository.generate_unique_reference(db)
-        desc = req.description or f"Withdrawal of ₹{req.amount} from {customer_acc.account_number}"
-
-        # Double-entry posting:
-        # Leg 1: DEBIT customer account (Liability decreases with debit)
-        # Leg 2: CREDIT ACC-SYSTEM02 (Asset/Transit decreases with credit)
-        txn = ledger_repository.create_transaction_with_entries(
-            db=db,
-            reference=ref,
-            transaction_type=TransactionType.SETTLEMENT,
-            description=desc,
-            debit_account_id=customer_acc.id,
-            credit_account_id=clearing_acc.id,
-            amount=req.amount,
-        )
-        db.commit()
-
-        # Re-query with eager-loaded entries
-        return ledger_repository.get_transaction_by_id(db, txn.id)  # type: ignore[return-value]
-
-    @staticmethod
-    def transfer(
-        db: Session, current_user: User, req: TransferRequest
-    ) -> LedgerTransaction:
-        # RBAC Check: Auditors cannot perform financial operations
-        if current_user.role == UserRole.AUDITOR:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Auditors are not permitted to perform financial operations",
-            )
-
-        # Self-transfer check
-        if req.source_account_id == req.destination_account_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Source and destination accounts must be distinct",
-            )
-
-        # Deadlock-free deterministic row locking ordered by UUID
-        first_id = min(req.source_account_id, req.destination_account_id)
-        second_id = max(req.source_account_id, req.destination_account_id)
-
-        first_acc = db.scalar(select(Account).where(Account.id == first_id).with_for_update(of=Account))
-        second_acc = db.scalar(select(Account).where(Account.id == second_id).with_for_update(of=Account))
-
-
-        source_acc = first_acc if first_id == req.source_account_id else second_acc
-        dest_acc = second_acc if first_id == req.source_account_id else first_acc
-
-        # Sourcing account existence check
-        if not source_acc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Account not found",
-            )
-
-        # Anti-Enumeration: Account Holder can only source from accounts they own
-        if current_user.role == UserRole.ACCOUNT_HOLDER:
-            if source_acc.owner_id != current_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Account not found",
-                )
-
-        # Destination account existence check
-        if not dest_acc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Destination account not found",
-            )
-
-        # Both accounts must be customer checking or savings accounts
-        for acc, label in [(source_acc, "Source"), (dest_acc, "Destination")]:
-            if acc.account_type not in (
+            # Account type check: Customer accounts only
+            if customer_acc.account_type not in (
                 AccountType.CUSTOMER_CHECKING,
                 AccountType.CUSTOMER_SAVINGS,
             ):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"{label} account must be a customer checking or savings account",
+                    detail="Deposits can only be performed on customer accounts",
                 )
 
-        # Status check: both accounts must be active
-        if source_acc.status != AccountStatus.ACTIVE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Source account is {source_acc.status.value}; transactions are only permitted on active accounts",
+            # Status check
+            if customer_acc.status != AccountStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts",
+                )
+
+            # Resolve system clearing transit account
+            clearing_acc = db.scalar(
+                select(Account).where(Account.account_number == "ACC-SYSTEM02").with_for_update(of=Account)
             )
-        if dest_acc.status != AccountStatus.ACTIVE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Destination account is {dest_acc.status.value}; transactions are only permitted on active accounts",
+            if not clearing_acc:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="System clearing account ACC-SYSTEM02 is not configured",
+                )
+
+            ref = ledger_repository.generate_unique_reference(db)
+            desc = req.description or f"Deposit of ₹{req.amount} to {customer_acc.account_number}"
+
+            # Double-entry posting:
+            # Leg 1: DEBIT ACC-SYSTEM02 (Asset/Transit increases with debit)
+            # Leg 2: CREDIT customer account (Liability increases with credit)
+            txn = ledger_repository.create_transaction_with_entries(
+                db=db,
+                reference=ref,
+                transaction_type=TransactionType.SETTLEMENT,
+                description=desc,
+                debit_account_id=clearing_acc.id,
+                credit_account_id=customer_acc.id,
+                amount=req.amount,
             )
 
-        # Sufficiency check: Source account balance must cover transfer amount
-        if source_acc.balance < req.amount:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Insufficient funds",
+            # Re-query with eager-loaded entries
+            full_txn = ledger_repository.get_transaction_by_id(db, txn.id)
+            response_dto = TransactionResponse.model_validate(full_txn)
+            response_dict = response_dto.model_dump(mode="json")
+            response_json = json.dumps(response_dict)
+
+            # Mark idempotency record completed within same transaction
+            if record:
+                idempotency_repository.mark_completed(
+                    db=db,
+                    record=record,
+                    transaction_id=txn.id,
+                    status_code=status.HTTP_201_CREATED,
+                    response_body=response_json,
+                )
+
+            db.commit()
+            return response_dict, False
+
+        except Exception:
+            db.rollback()
+            raise
+
+    @staticmethod
+    def withdraw(
+        db: Session,
+        current_user: User,
+        req: WithdrawRequest,
+        idempotency_key: Optional[str] = None,
+    ) -> Tuple[Any, bool]:
+        record = None
+        request_hash = None
+
+        if idempotency_key is not None:
+            canonical_data = {
+                "account_id": req.account_id,
+                "amount": req.amount,
+                "description": req.description or "",
+            }
+            request_hash = idempotency_repository.compute_canonical_fingerprint(
+                "withdraw", canonical_data
             )
 
-        ref = ledger_repository.generate_unique_reference(db)
-        desc = (
-            req.description
-            or f"Transfer of ₹{req.amount} from {source_acc.account_number} to {dest_acc.account_number}"
-        )
+            # 1. Try atomic reservation
+            record = idempotency_repository.try_create_processing_record(
+                db=db,
+                user_id=current_user.id,
+                idempotency_key=idempotency_key,
+                operation_type="withdraw",
+                request_hash=request_hash,
+            )
 
-        # Double-entry posting:
-        # Leg 1: DEBIT source account (Liability decreases with debit)
-        # Leg 2: CREDIT destination account (Liability increases with credit)
-        txn = ledger_repository.create_transaction_with_entries(
-            db=db,
-            reference=ref,
-            transaction_type=TransactionType.TRANSFER,
-            description=desc,
-            debit_account_id=source_acc.id,
-            credit_account_id=dest_acc.id,
-            amount=req.amount,
-        )
-        db.commit()
+            # 2. If conflict, wait on pessimistic lock of existing record
+            if not record:
+                record = idempotency_repository.get_locked_record(
+                    db=db,
+                    user_id=current_user.id,
+                    idempotency_key=idempotency_key,
+                )
+                if not record:
+                    record = idempotency_repository.try_create_processing_record(
+                        db=db,
+                        user_id=current_user.id,
+                        idempotency_key=idempotency_key,
+                        operation_type="withdraw",
+                        request_hash=request_hash,
+                    )
+                    if not record:
+                        record = idempotency_repository.get_locked_record(
+                            db=db,
+                            user_id=current_user.id,
+                            idempotency_key=idempotency_key,
+                        )
 
-        # Re-query with eager-loaded entries
-        return ledger_repository.get_transaction_by_id(db, txn.id)  # type: ignore[return-value]
+            # 3. Check for replay or parameter conflict on completed record
+            if record and record.status == "completed":
+                if record.request_hash != request_hash:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Idempotency key was previously used with a different request payload.",
+                    )
+                cached_data = json.loads(record.response_body)
+                return cached_data, True
+
+        try:
+            # RBAC Check: Auditors cannot perform financial operations
+            if current_user.role == UserRole.AUDITOR:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Auditors are not permitted to perform financial operations",
+                )
+
+            # Retrieve and lock customer account
+            customer_acc = db.scalar(
+                select(Account).where(Account.id == req.account_id).with_for_update(of=Account)
+            )
+            if not customer_acc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Account not found",
+                )
+
+            # Anti-Enumeration: Account Holder can only withdraw from their own accounts
+            if current_user.role == UserRole.ACCOUNT_HOLDER:
+                if customer_acc.owner_id != current_user.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Account not found",
+                    )
+
+            # Account type check: Customer accounts only
+            if customer_acc.account_type not in (
+                AccountType.CUSTOMER_CHECKING,
+                AccountType.CUSTOMER_SAVINGS,
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Withdrawals can only be performed on customer accounts",
+                )
+
+            # Status check
+            if customer_acc.status != AccountStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts",
+                )
+
+            # Sufficiency check: Customer balance must cover withdrawal amount
+            if customer_acc.balance < req.amount:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Insufficient funds",
+                )
+
+            # Resolve system clearing transit account
+            clearing_acc = db.scalar(
+                select(Account).where(Account.account_number == "ACC-SYSTEM02").with_for_update(of=Account)
+            )
+            if not clearing_acc:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="System clearing account ACC-SYSTEM02 is not configured",
+                )
+
+            ref = ledger_repository.generate_unique_reference(db)
+            desc = req.description or f"Withdrawal of ₹{req.amount} from {customer_acc.account_number}"
+
+            # Double-entry posting:
+            # Leg 1: DEBIT customer account (Liability decreases with debit)
+            # Leg 2: CREDIT ACC-SYSTEM02 (Asset/Transit decreases with credit)
+            txn = ledger_repository.create_transaction_with_entries(
+                db=db,
+                reference=ref,
+                transaction_type=TransactionType.SETTLEMENT,
+                description=desc,
+                debit_account_id=customer_acc.id,
+                credit_account_id=clearing_acc.id,
+                amount=req.amount,
+            )
+
+            full_txn = ledger_repository.get_transaction_by_id(db, txn.id)
+            response_dto = TransactionResponse.model_validate(full_txn)
+            response_dict = response_dto.model_dump(mode="json")
+            response_json = json.dumps(response_dict)
+
+            if record:
+                idempotency_repository.mark_completed(
+                    db=db,
+                    record=record,
+                    transaction_id=txn.id,
+                    status_code=status.HTTP_201_CREATED,
+                    response_body=response_json,
+                )
+
+            db.commit()
+            return response_dict, False
+
+        except Exception:
+            db.rollback()
+            raise
+
+    @staticmethod
+    def transfer(
+        db: Session,
+        current_user: User,
+        req: TransferRequest,
+        idempotency_key: Optional[str] = None,
+    ) -> Tuple[Any, bool]:
+        record = None
+        request_hash = None
+
+        if idempotency_key is not None:
+            canonical_data = {
+                "source_account_id": req.source_account_id,
+                "destination_account_id": req.destination_account_id,
+                "amount": req.amount,
+                "description": req.description or "",
+            }
+            request_hash = idempotency_repository.compute_canonical_fingerprint(
+                "transfer", canonical_data
+            )
+
+            # 1. Try atomic reservation
+            record = idempotency_repository.try_create_processing_record(
+                db=db,
+                user_id=current_user.id,
+                idempotency_key=idempotency_key,
+                operation_type="transfer",
+                request_hash=request_hash,
+            )
+
+            # 2. If conflict, wait on pessimistic lock of existing record
+            if not record:
+                record = idempotency_repository.get_locked_record(
+                    db=db,
+                    user_id=current_user.id,
+                    idempotency_key=idempotency_key,
+                )
+                if not record:
+                    record = idempotency_repository.try_create_processing_record(
+                        db=db,
+                        user_id=current_user.id,
+                        idempotency_key=idempotency_key,
+                        operation_type="transfer",
+                        request_hash=request_hash,
+                    )
+                    if not record:
+                        record = idempotency_repository.get_locked_record(
+                            db=db,
+                            user_id=current_user.id,
+                            idempotency_key=idempotency_key,
+                        )
+
+            # 3. Check for replay or parameter conflict on completed record
+            if record and record.status == "completed":
+                if record.request_hash != request_hash:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Idempotency key was previously used with a different request payload.",
+                    )
+                cached_data = json.loads(record.response_body)
+                return cached_data, True
+
+        try:
+            # RBAC Check: Auditors cannot perform financial operations
+            if current_user.role == UserRole.AUDITOR:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Auditors are not permitted to perform financial operations",
+                )
+
+            # Self-transfer check
+            if req.source_account_id == req.destination_account_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Source and destination accounts must be distinct",
+                )
+
+            # Deadlock-free deterministic row locking ordered by UUID
+            first_id = min(req.source_account_id, req.destination_account_id)
+            second_id = max(req.source_account_id, req.destination_account_id)
+
+            first_acc = db.scalar(select(Account).where(Account.id == first_id).with_for_update(of=Account))
+            second_acc = db.scalar(select(Account).where(Account.id == second_id).with_for_update(of=Account))
+
+            source_acc = first_acc if first_id == req.source_account_id else second_acc
+            dest_acc = second_acc if first_id == req.source_account_id else first_acc
+
+            # Sourcing account existence check
+            if not source_acc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Account not found",
+                )
+
+            # Anti-Enumeration: Account Holder can only source from accounts they own
+            if current_user.role == UserRole.ACCOUNT_HOLDER:
+                if source_acc.owner_id != current_user.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Account not found",
+                    )
+
+            # Destination account existence check
+            if not dest_acc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Destination account not found",
+                )
+
+            # Both accounts must be customer checking or savings accounts
+            for acc, label in [(source_acc, "Source"), (dest_acc, "Destination")]:
+                if acc.account_type not in (
+                    AccountType.CUSTOMER_CHECKING,
+                    AccountType.CUSTOMER_SAVINGS,
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"{label} account must be a customer checking or savings account",
+                    )
+
+            # Status check: both accounts must be active
+            if source_acc.status != AccountStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Source account is {source_acc.status.value}; transactions are only permitted on active accounts",
+                )
+            if dest_acc.status != AccountStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Destination account is {dest_acc.status.value}; transactions are only permitted on active accounts",
+                )
+
+            # Sufficiency check: Source account balance must cover transfer amount
+            if source_acc.balance < req.amount:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Insufficient funds",
+                )
+
+            ref = ledger_repository.generate_unique_reference(db)
+            desc = (
+                req.description
+                or f"Transfer of ₹{req.amount} from {source_acc.account_number} to {dest_acc.account_number}"
+            )
+
+            # Double-entry posting:
+            # Leg 1: DEBIT source account (Liability decreases with debit)
+            # Leg 2: CREDIT destination account (Liability increases with credit)
+            txn = ledger_repository.create_transaction_with_entries(
+                db=db,
+                reference=ref,
+                transaction_type=TransactionType.TRANSFER,
+                description=desc,
+                debit_account_id=source_acc.id,
+                credit_account_id=dest_acc.id,
+                amount=req.amount,
+            )
+
+            full_txn = ledger_repository.get_transaction_by_id(db, txn.id)
+            response_dto = TransactionResponse.model_validate(full_txn)
+            response_dict = response_dto.model_dump(mode="json")
+            response_json = json.dumps(response_dict)
+
+            if record:
+                idempotency_repository.mark_completed(
+                    db=db,
+                    record=record,
+                    transaction_id=txn.id,
+                    status_code=status.HTTP_201_CREATED,
+                    response_body=response_json,
+                )
+
+            db.commit()
+            return response_dict, False
+
+        except Exception:
+            db.rollback()
+            raise
 
     @staticmethod
     def get_transaction(

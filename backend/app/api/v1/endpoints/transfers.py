@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Query, status
+from typing import Optional
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db
@@ -16,6 +17,35 @@ from backend.app.security.dependencies import get_current_user
 router = APIRouter()
 
 
+def validate_idempotency_key(
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key")
+) -> str:
+    """
+    Validates the client-supplied Idempotency-Key HTTP header:
+    - Must be provided and non-empty.
+    - Length must be between 8 and 128 characters.
+    - Must contain only printable ASCII characters without whitespace (ASCII 33 to 126).
+    Rejects violations with HTTP 400 Bad Request.
+    """
+    if idempotency_key is None or not idempotency_key.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Idempotency-Key header is required and cannot be empty",
+        )
+    key = idempotency_key.strip()
+    if len(key) < 8 or len(key) > 128:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Idempotency-Key must be between 8 and 128 characters in length",
+        )
+    if not all(32 < ord(c) <= 126 for c in key):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Idempotency-Key must consist of printable ASCII characters without whitespace",
+        )
+    return key
+
+
 @router.post(
     "/deposit",
     response_model=TransactionResponse,
@@ -27,21 +57,30 @@ router = APIRouter()
         "DEBIT ACC-SYSTEM02 (Internal Clearing), CREDIT Customer Account. "
         "Account Holders can only deposit into accounts they own. "
         "Administrators can deposit into any customer account. "
-        "Auditors are rejected with HTTP 403 Forbidden."
+        "Auditors are rejected with HTTP 403 Forbidden. "
+        "Guarded by database-backed idempotency."
     ),
     responses={
         201: {"description": "Deposit successful.", "model": TransactionResponse},
-        400: {"description": "Bad Request: Account not active or invalid account type."},
+        400: {"description": "Bad Request: Account not active, invalid account type, or missing/invalid Idempotency-Key."},
         403: {"description": "Forbidden: Auditors cannot perform deposits."},
         404: {"description": "Not Found: Account does not exist or user does not own it."},
+        409: {"description": "Conflict: Idempotency key previously used with different parameters."},
     },
 )
 def deposit(
     req: DepositRequest,
+    response: Response,
+    idempotency_key: str = Depends(validate_idempotency_key),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return transfer_service.deposit(db, current_user, req)
+    result, is_replay = transfer_service.deposit(
+        db, current_user, req, idempotency_key=idempotency_key
+    )
+    if is_replay:
+        response.headers["Idempotent-Replay"] = "true"
+    return result
 
 
 @router.post(
@@ -53,24 +92,32 @@ def deposit(
         "Disburses funds in INR from a customer checking or savings account. "
         "Creates a balanced double-entry settlement transaction: "
         "DEBIT Customer Account, CREDIT ACC-SYSTEM02 (Internal Clearing). "
-        "Guarded by deterministic row locking and account balance sufficiency check. "
+        "Guarded by deterministic row locking, balance sufficiency check, and idempotency deduplication. "
         "Account Holders can only withdraw from accounts they own. "
         "Administrators can withdraw from any customer account. "
         "Auditors are rejected with HTTP 403 Forbidden."
     ),
     responses={
         201: {"description": "Withdrawal successful.", "model": TransactionResponse},
-        400: {"description": "Bad Request: Insufficient funds or account not active."},
+        400: {"description": "Bad Request: Insufficient funds, account not active, or missing/invalid Idempotency-Key."},
         403: {"description": "Forbidden: Auditors cannot perform withdrawals."},
         404: {"description": "Not Found: Account does not exist or user does not own it."},
+        409: {"description": "Conflict: Idempotency key previously used with different parameters."},
     },
 )
 def withdraw(
     req: WithdrawRequest,
+    response: Response,
+    idempotency_key: str = Depends(validate_idempotency_key),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return transfer_service.withdraw(db, current_user, req)
+    result, is_replay = transfer_service.withdraw(
+        db, current_user, req, idempotency_key=idempotency_key
+    )
+    if is_replay:
+        response.headers["Idempotent-Replay"] = "true"
+    return result
 
 
 @router.post(
@@ -85,21 +132,30 @@ def withdraw(
         "Guarded by deterministic row locking to prevent deadlocks and race conditions. "
         "Account Holders can only transfer from accounts they own. "
         "Administrators can transfer between any customer accounts. "
-        "Auditors are rejected with HTTP 403 Forbidden."
+        "Auditors are rejected with HTTP 403 Forbidden. "
+        "Guarded by database-backed idempotency."
     ),
     responses={
         201: {"description": "Transfer successful.", "model": TransactionResponse},
-        400: {"description": "Bad Request: Insufficient funds, identical accounts, or inactive account."},
+        400: {"description": "Bad Request: Insufficient funds, identical accounts, inactive account, or missing/invalid Idempotency-Key."},
         403: {"description": "Forbidden: Auditors cannot perform transfers."},
         404: {"description": "Not Found: Sourcing or destination account not found or unowned."},
+        409: {"description": "Conflict: Idempotency key previously used with different parameters."},
     },
 )
 def transfer(
     req: TransferRequest,
+    response: Response,
+    idempotency_key: str = Depends(validate_idempotency_key),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return transfer_service.transfer(db, current_user, req)
+    result, is_replay = transfer_service.transfer(
+        db, current_user, req, idempotency_key=idempotency_key
+    )
+    if is_replay:
+        response.headers["Idempotent-Replay"] = "true"
+    return result
 
 
 @router.get(

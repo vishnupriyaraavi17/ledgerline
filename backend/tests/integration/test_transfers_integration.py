@@ -35,6 +35,29 @@ def owner_session():
         engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def auto_idempotency_for_transfers(monkeypatch, client: TestClient):
+    """
+    Ensures Task 04 financial tests supply a valid Idempotency-Key
+    if not explicitly specified, adhering to Task 05 mandatory idempotency requirement.
+    """
+    orig_post = client.post
+
+    def patched_post(url, *args, **kwargs):
+        if any(ep in str(url) for ep in ["/transfers/deposit", "/transfers/withdraw", "/transfers/transfer"]):
+            headers = kwargs.get("headers")
+            if headers is None:
+                kwargs["headers"] = {"Idempotency-Key": f"test-key-{uuid.uuid4()}"}
+            elif "Idempotency-Key" not in headers and "idempotency-key" not in headers:
+                # Inject default test key only if not already provided
+                new_headers = dict(headers)
+                new_headers["Idempotency-Key"] = f"test-key-{uuid.uuid4()}"
+                kwargs["headers"] = new_headers
+        return orig_post(url, *args, **kwargs)
+
+    monkeypatch.setattr(client, "post", patched_post)
+
+
 @pytest.fixture(scope="module")
 def admin_token(client: TestClient) -> str:
     response = client.post(

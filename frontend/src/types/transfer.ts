@@ -36,3 +36,8 @@ export interface TransactionListResponse {
   skip: number;
   limit: number;
 }
+
+export interface FinancialOperationResult {
+  transaction: TransactionResponse;
+  isReplay: boolean;
+}

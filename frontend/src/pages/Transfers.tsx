@@ -79,6 +79,55 @@ export const TransfersPage: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Idempotency state management
+  const [transferKey, setTransferKey] = useState<string>(() => crypto.randomUUID());
+  const [depositKey, setDepositKey] = useState<string>(() => crypto.randomUUID());
+  const [withdrawKey, setWithdrawKey] = useState<string>(() => crypto.randomUUID());
+  const [replayMessage, setReplayMessage] = useState<string | null>(null);
+  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [canRetry, setCanRetry] = useState<boolean>(false);
+  const [lastFailedAction, setLastFailedAction] = useState<(() => Promise<void>) | null>(null);
+
+  const generateNewKeyForActiveTab = () => {
+    const fresh = crypto.randomUUID();
+    if (activeTab === 'transfer') setTransferKey(fresh);
+    else if (activeTab === 'deposit') setDepositKey(fresh);
+    else if (activeTab === 'withdraw') setWithdrawKey(fresh);
+    setConflictError(null);
+    setCanRetry(false);
+    setLastFailedAction(null);
+  };
+
+  const updateTransferField = (field: string, value: string) => {
+    setTransferForm((prev) => ({ ...prev, [field]: value }));
+    setTransferKey(crypto.randomUUID());
+    setFormError(null);
+    setConflictError(null);
+    setReplayMessage(null);
+    setCanRetry(false);
+    setLastFailedAction(null);
+  };
+
+  const updateDepositField = (field: string, value: string) => {
+    setDepositForm((prev) => ({ ...prev, [field]: value }));
+    setDepositKey(crypto.randomUUID());
+    setFormError(null);
+    setConflictError(null);
+    setReplayMessage(null);
+    setCanRetry(false);
+    setLastFailedAction(null);
+  };
+
+  const updateWithdrawField = (field: string, value: string) => {
+    setWithdrawForm((prev) => ({ ...prev, [field]: value }));
+    setWithdrawKey(crypto.randomUUID());
+    setFormError(null);
+    setConflictError(null);
+    setReplayMessage(null);
+    setCanRetry(false);
+    setLastFailedAction(null);
+  };
+
   // Initial data loader
   const loadData = async (silent: boolean = false) => {
     if (!silent) setLoading(true);
@@ -160,9 +209,11 @@ export const TransfersPage: React.FC = () => {
   };
 
   // 1. Submit Transfer
-  const handleTransfer = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleTransfer = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setFormError(null);
+    setConflictError(null);
+    setReplayMessage(null);
     setSuccessMessage(null);
 
     if (transferForm.source_id === transferForm.destination_id) {
@@ -191,24 +242,53 @@ export const TransfersPage: React.FC = () => {
         description: transferForm.description.trim() || undefined,
       };
 
-      const res = await apiService.transfer(payload);
-      setSuccessMessage(
-        `Transfer completed successfully. Reference: ${res.reference} (Amount: ₹${payload.amount})`
-      );
+      const res = await apiService.transfer(payload, transferKey);
+      if (res.isReplay) {
+        setReplayMessage('Replayed Transaction: Idempotency safety verified (No duplicate funds moved).');
+        setSuccessMessage(
+          `Transfer already processed (Replayed). Reference: ${res.transaction.reference} (Amount: ₹${payload.amount})`
+        );
+      } else {
+        setReplayMessage(null);
+        setSuccessMessage(
+          `Transfer completed successfully. Reference: ${res.transaction.reference} (Amount: ₹${payload.amount})`
+        );
+      }
+
+      // Fresh key for subsequent transaction
+      setTransferKey(crypto.randomUUID());
       setTransferForm((prev) => ({ ...prev, amount: '', description: '' }));
+      setCanRetry(false);
+      setLastFailedAction(null);
       await loadData(true);
     } catch (err: any) {
+      const status = err.response?.status;
       const detail = err.response?.data?.detail;
-      setFormError(typeof detail === 'string' ? detail : 'Transfer request failed.');
+      if (status === 409) {
+        setConflictError(typeof detail === 'string' ? detail : 'Idempotency conflict: Key was previously used with a different request payload.');
+        setCanRetry(false);
+        setLastFailedAction(null);
+      } else if (!err.response || err.code === 'ECONNABORTED' || err.message?.includes('Network Error') || err.message?.includes('timeout')) {
+        // Network timeout / connection drop: RETAIN identical key for safe retry
+        setFormError('Network timeout or connection error. The active idempotency key has been retained. You can safely retry without duplicate posting.');
+        setCanRetry(true);
+        setLastFailedAction(() => () => handleTransfer());
+      } else {
+        setFormError(typeof detail === 'string' ? detail : 'Transfer request failed.');
+        setCanRetry(false);
+        setLastFailedAction(null);
+      }
     } finally {
       setFormSubmitting(false);
     }
   };
 
   // 2. Submit Deposit
-  const handleDeposit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleDeposit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setFormError(null);
+    setConflictError(null);
+    setReplayMessage(null);
     setSuccessMessage(null);
 
     const amt = parseFloat(depositForm.amount);
@@ -225,24 +305,53 @@ export const TransfersPage: React.FC = () => {
         description: depositForm.description.trim() || undefined,
       };
 
-      const res = await apiService.deposit(payload);
-      setSuccessMessage(
-        `Simulated deposit posted successfully. Reference: ${res.reference} (Amount: ₹${payload.amount})`
-      );
+      const res = await apiService.deposit(payload, depositKey);
+      if (res.isReplay) {
+        setReplayMessage('Replayed Transaction: Idempotency safety verified (No duplicate funds moved).');
+        setSuccessMessage(
+          `Deposit already processed (Replayed). Reference: ${res.transaction.reference} (Amount: ₹${payload.amount})`
+        );
+      } else {
+        setReplayMessage(null);
+        setSuccessMessage(
+          `Simulated deposit posted successfully. Reference: ${res.transaction.reference} (Amount: ₹${payload.amount})`
+        );
+      }
+
+      // Fresh key for subsequent transaction
+      setDepositKey(crypto.randomUUID());
       setDepositForm((prev) => ({ ...prev, amount: '', description: '' }));
+      setCanRetry(false);
+      setLastFailedAction(null);
       await loadData(true);
     } catch (err: any) {
+      const status = err.response?.status;
       const detail = err.response?.data?.detail;
-      setFormError(typeof detail === 'string' ? detail : 'Deposit request failed.');
+      if (status === 409) {
+        setConflictError(typeof detail === 'string' ? detail : 'Idempotency conflict: Key was previously used with a different request payload.');
+        setCanRetry(false);
+        setLastFailedAction(null);
+      } else if (!err.response || err.code === 'ECONNABORTED' || err.message?.includes('Network Error') || err.message?.includes('timeout')) {
+        // Network timeout / connection drop: RETAIN identical key for safe retry
+        setFormError('Network timeout or connection error. The active idempotency key has been retained. You can safely retry without duplicate posting.');
+        setCanRetry(true);
+        setLastFailedAction(() => () => handleDeposit());
+      } else {
+        setFormError(typeof detail === 'string' ? detail : 'Deposit request failed.');
+        setCanRetry(false);
+        setLastFailedAction(null);
+      }
     } finally {
       setFormSubmitting(false);
     }
   };
 
   // 3. Submit Withdrawal
-  const handleWithdrawal = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleWithdrawal = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setFormError(null);
+    setConflictError(null);
+    setReplayMessage(null);
     setSuccessMessage(null);
 
     const amt = parseFloat(withdrawForm.amount);
@@ -265,15 +374,42 @@ export const TransfersPage: React.FC = () => {
         description: withdrawForm.description.trim() || undefined,
       };
 
-      const res = await apiService.withdraw(payload);
-      setSuccessMessage(
-        `Simulated withdrawal disbursed successfully. Reference: ${res.reference} (Amount: ₹${payload.amount})`
-      );
+      const res = await apiService.withdraw(payload, withdrawKey);
+      if (res.isReplay) {
+        setReplayMessage('Replayed Transaction: Idempotency safety verified (No duplicate funds moved).');
+        setSuccessMessage(
+          `Withdrawal already processed (Replayed). Reference: ${res.transaction.reference} (Amount: ₹${payload.amount})`
+        );
+      } else {
+        setReplayMessage(null);
+        setSuccessMessage(
+          `Simulated withdrawal disbursed successfully. Reference: ${res.transaction.reference} (Amount: ₹${payload.amount})`
+        );
+      }
+
+      // Fresh key for subsequent transaction
+      setWithdrawKey(crypto.randomUUID());
       setWithdrawForm((prev) => ({ ...prev, amount: '', description: '' }));
+      setCanRetry(false);
+      setLastFailedAction(null);
       await loadData(true);
     } catch (err: any) {
+      const status = err.response?.status;
       const detail = err.response?.data?.detail;
-      setFormError(typeof detail === 'string' ? detail : 'Withdrawal request failed.');
+      if (status === 409) {
+        setConflictError(typeof detail === 'string' ? detail : 'Idempotency conflict: Key was previously used with a different request payload.');
+        setCanRetry(false);
+        setLastFailedAction(null);
+      } else if (!err.response || err.code === 'ECONNABORTED' || err.message?.includes('Network Error') || err.message?.includes('timeout')) {
+        // Network timeout / connection drop: RETAIN identical key for safe retry
+        setFormError('Network timeout or connection error. The active idempotency key has been retained. You can safely retry without duplicate posting.');
+        setCanRetry(true);
+        setLastFailedAction(() => () => handleWithdrawal());
+      } else {
+        setFormError(typeof detail === 'string' ? detail : 'Withdrawal request failed.');
+        setCanRetry(false);
+        setLastFailedAction(null);
+      }
     } finally {
       setFormSubmitting(false);
     }
@@ -426,7 +562,22 @@ export const TransfersPage: React.FC = () => {
       </div>
 
       {/* Action Notifications */}
-      {successMessage && (
+      {replayMessage && (
+        <div className="p-4 bg-sky-50 border border-sky-200 rounded-xl flex items-center gap-3 text-sky-800 text-sm shadow-xs animate-in fade-in">
+          <Shield className="w-5 h-5 text-sky-600 shrink-0" />
+          <div>
+            <div className="font-semibold flex items-center gap-2">
+              <span>Replayed Transaction</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-sky-100 text-sky-700 rounded-full">
+                Idempotent Replay
+              </span>
+            </div>
+            <div className="text-xs text-sky-700">{replayMessage}</div>
+          </div>
+        </div>
+      )}
+
+      {successMessage && !replayMessage && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 text-emerald-800 text-sm shadow-xs animate-in fade-in">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <div>
@@ -436,13 +587,48 @@ export const TransfersPage: React.FC = () => {
         </div>
       )}
 
-      {formError && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-3 text-rose-800 text-sm shadow-xs">
-          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-          <div>
-            <div className="font-semibold">Operation Rejected</div>
-            <div className="text-xs text-rose-700">{formError}</div>
+      {conflictError && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start justify-between gap-3 text-amber-800 text-sm shadow-xs animate-in fade-in">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold text-amber-900">Idempotency Conflict (HTTP 409)</div>
+              <div className="text-xs text-amber-700 mt-0.5">{conflictError}</div>
+              <div className="text-xs text-amber-600 mt-1">
+                This idempotency key was previously submitted with different transaction parameters. Click below to generate a fresh key for this payload.
+              </div>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={generateNewKeyForActiveTab}
+            className="px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition shrink-0"
+          >
+            Generate Fresh Key
+          </button>
+        </div>
+      )}
+
+      {formError && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between gap-3 text-rose-800 text-sm shadow-xs">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            <div>
+              <div className="font-semibold">Operation Rejected</div>
+              <div className="text-xs text-rose-700">{formError}</div>
+            </div>
+          </div>
+          {canRetry && lastFailedAction && (
+            <button
+              type="button"
+              onClick={() => lastFailedAction()}
+              disabled={formSubmitting}
+              className="px-3 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition shrink-0 flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${formSubmitting ? 'animate-spin' : ''}`} />
+              <span>Retry with Same Key</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -456,7 +642,23 @@ export const TransfersPage: React.FC = () => {
               <p className="text-xs text-slate-500">
                 Atomically moves funds between two distinct customer accounts with mathematical money conservation (&Delta; Total Funds = 0.00).
               </p>
+            </div>
 
+            {/* Active Idempotency Key Audit Badge */}
+            <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-600">
+              <div className="flex items-center gap-2">
+                <Shield className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                <span className="font-medium text-slate-700 font-sans">Active Idempotency Key:</span>
+                <span className="text-indigo-600 font-semibold">{transferKey.slice(0, 8)}...{transferKey.slice(-4)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={generateNewKeyForActiveTab}
+                className="text-[11px] text-slate-500 hover:text-indigo-600 underline font-sans"
+                title="Generate fresh UUID key"
+              >
+                Generate Fresh Key
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -467,7 +669,7 @@ export const TransfersPage: React.FC = () => {
                 </label>
                 <select
                   value={transferForm.source_id}
-                  onChange={(e) => setTransferForm({ ...transferForm, source_id: e.target.value })}
+                  onChange={(e) => updateTransferField('source_id', e.target.value)}
                   className="w-full text-xs font-medium border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
                   required
                 >
@@ -493,7 +695,7 @@ export const TransfersPage: React.FC = () => {
                 </label>
                 <select
                   value={transferForm.destination_id}
-                  onChange={(e) => setTransferForm({ ...transferForm, destination_id: e.target.value })}
+                  onChange={(e) => updateTransferField('destination_id', e.target.value)}
                   className="w-full text-xs font-medium border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
                   required
                 >
@@ -527,7 +729,7 @@ export const TransfersPage: React.FC = () => {
                   min="0.01"
                   placeholder="0.00"
                   value={transferForm.amount}
-                  onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
+                  onChange={(e) => updateTransferField('amount', e.target.value)}
                   className="w-full pl-8 text-sm font-mono border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
                   required
                 />
@@ -544,7 +746,7 @@ export const TransfersPage: React.FC = () => {
                 maxLength={255}
                 placeholder="e.g. Invoice payment, personal settlement"
                 value={transferForm.description}
-                onChange={(e) => setTransferForm({ ...transferForm, description: e.target.value })}
+                onChange={(e) => updateTransferField('description', e.target.value)}
                 className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -581,6 +783,23 @@ export const TransfersPage: React.FC = () => {
               </p>
             </div>
 
+            {/* Active Idempotency Key Audit Badge */}
+            <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-600">
+              <div className="flex items-center gap-2">
+                <Shield className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                <span className="font-medium text-slate-700 font-sans">Active Idempotency Key:</span>
+                <span className="text-emerald-600 font-semibold">{depositKey.slice(0, 8)}...{depositKey.slice(-4)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={generateNewKeyForActiveTab}
+                className="text-[11px] text-slate-500 hover:text-emerald-600 underline font-sans"
+                title="Generate fresh UUID key"
+              >
+                Generate Fresh Key
+              </button>
+            </div>
+
             <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-900 flex items-start gap-2">
               <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
               <span>
@@ -595,7 +814,7 @@ export const TransfersPage: React.FC = () => {
               </label>
               <select
                 value={depositForm.account_id}
-                onChange={(e) => setDepositForm({ ...depositForm, account_id: e.target.value })}
+                onChange={(e) => updateDepositField('account_id', e.target.value)}
                 className="w-full text-xs font-medium border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
                 required
               >
@@ -620,7 +839,7 @@ export const TransfersPage: React.FC = () => {
                   min="0.01"
                   placeholder="0.00"
                   value={depositForm.amount}
-                  onChange={(e) => setDepositForm({ ...depositForm, amount: e.target.value })}
+                  onChange={(e) => updateDepositField('amount', e.target.value)}
                   className="w-full pl-8 text-sm font-mono border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
                   required
                 />
@@ -637,7 +856,7 @@ export const TransfersPage: React.FC = () => {
                 maxLength={255}
                 placeholder="e.g. Initial funding, wire settlement"
                 value={depositForm.description}
-                onChange={(e) => setDepositForm({ ...depositForm, description: e.target.value })}
+                onChange={(e) => updateDepositField('description', e.target.value)}
                 className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -674,6 +893,23 @@ export const TransfersPage: React.FC = () => {
               </p>
             </div>
 
+            {/* Active Idempotency Key Audit Badge */}
+            <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-600">
+              <div className="flex items-center gap-2">
+                <Shield className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="font-medium text-slate-700 font-sans">Active Idempotency Key:</span>
+                <span className="text-amber-600 font-semibold">{withdrawKey.slice(0, 8)}...{withdrawKey.slice(-4)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={generateNewKeyForActiveTab}
+                className="text-[11px] text-slate-500 hover:text-amber-600 underline font-sans"
+                title="Generate fresh UUID key"
+              >
+                Generate Fresh Key
+              </button>
+            </div>
+
             <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-900 flex items-start gap-2">
               <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <span>
@@ -688,7 +924,7 @@ export const TransfersPage: React.FC = () => {
               </label>
               <select
                 value={withdrawForm.account_id}
-                onChange={(e) => setWithdrawForm({ ...withdrawForm, account_id: e.target.value })}
+                onChange={(e) => updateWithdrawField('account_id', e.target.value)}
                 className="w-full text-xs font-medium border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
                 required
               >
@@ -713,7 +949,7 @@ export const TransfersPage: React.FC = () => {
                   min="0.01"
                   placeholder="0.00"
                   value={withdrawForm.amount}
-                  onChange={(e) => setWithdrawForm({ ...withdrawForm, amount: e.target.value })}
+                  onChange={(e) => updateWithdrawField('amount', e.target.value)}
                   className="w-full pl-8 text-sm font-mono border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
                   required
                 />
@@ -730,7 +966,7 @@ export const TransfersPage: React.FC = () => {
                 maxLength={255}
                 placeholder="e.g. ATM withdrawal, vendor payout"
                 value={withdrawForm.description}
-                onChange={(e) => setWithdrawForm({ ...withdrawForm, description: e.target.value })}
+                onChange={(e) => updateWithdrawField('description', e.target.value)}
                 className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
               />
             </div>
