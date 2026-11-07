@@ -6,6 +6,7 @@ import { Login } from './pages/Login';
 import { UsersPage } from './pages/Users';
 import { AccountsPage } from './pages/Accounts';
 import { TransfersPage } from './pages/Transfers';
+import { AuditTrailPage } from './pages/AuditTrail';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="accounts" element={<AccountsPage />} />
             <Route path="transfers" element={<TransfersPage />} />
+            <Route path="audit" element={<AuditTrailPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

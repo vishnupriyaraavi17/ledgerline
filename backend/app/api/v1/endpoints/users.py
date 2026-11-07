@@ -30,7 +30,7 @@ def create_user(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.ADMIN)),
 ):
-    return auth_service.create_user(db, user_in)
+    return auth_service.create_user(db, user_in, admin_user=_admin)
 
 
 @router.get(

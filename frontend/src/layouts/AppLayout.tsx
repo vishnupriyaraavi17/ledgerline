@@ -159,14 +159,22 @@ export const AppLayout: React.FC = () => {
             </NavLink>
 
 
-            <span
-              className="px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-400 cursor-not-allowed inline-flex items-center gap-1.5"
-              title="Append-only Immutable Statements will be implemented in a subsequent approved task."
-            >
-              <FileText className="w-4 h-4" />
-              <span>Audit Ledger</span>
-              <span className="text-[10px] bg-slate-100 px-1 rounded text-slate-400">Task 05</span>
-            </span>
+            {(user?.role === 'admin' || user?.role === 'auditor') && (
+              <NavLink
+                to="/audit"
+                className={({ isActive }) =>
+                  `px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition inline-flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`
+                }
+              >
+                <FileText className="w-4 h-4" />
+                <span>Audit Trail</span>
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 rounded font-semibold">Task 06</span>
+              </NavLink>
+            )}
           </nav>
         </div>
       </header>

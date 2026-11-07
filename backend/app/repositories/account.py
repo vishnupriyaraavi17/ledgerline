@@ -57,7 +57,7 @@ class AccountRepository:
             status=AccountStatus.ACTIVE,
         )
         db.add(account)
-        db.commit()
+        db.flush()
         db.refresh(account)
         return account
 
@@ -100,7 +100,7 @@ class AccountRepository:
         db: Session, account: Account, new_status: AccountStatus
     ) -> Account:
         account.status = new_status
-        db.commit()
+        db.flush()
         db.refresh(account)
         return account
 

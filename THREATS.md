@@ -14,7 +14,7 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 | **THR-02** | Concurrent Withdrawals (Race Conditions) | Critical | **Mitigated (Task 04)** (Deterministic pessimistic row locking `with_for_update(of=Account)`, pre-check sufficiency, and `chk_customer_balance_non_negative`) |
 | **THR-03** | Duplicate Money Movement (Replay Attacks) | Critical | **Mitigated (Task 05)** (PostgreSQL-backed idempotency engine, deterministic SHA-256 canonical request fingerprinting, mandatory `Idempotency-Key` header, atomic transaction commit, pessimistic row locking `SELECT ... FOR UPDATE`, permanent audit retention with runtime DELETE denial) |
 | **THR-04** | Negative Balances / Overdraft Violations | Critical | **Mitigated (Task 03 & Task 04)** (PostgreSQL check constraint `chk_customer_balance_non_negative`, sufficiency checks, and zero-sum deferred constraint trigger) |
-| **THR-05** | Ledger Modification or Deletion (Tampering) | Critical | **Mitigated (Task 03 & Task 04)** (PostgreSQL immutability triggers on row/statement levels, column-level least privilege; hash chaining scheduled for Task 05) |
+| **THR-05** | Ledger Modification or Deletion (Tampering) | Critical | **Mitigated (Task 06)** (Cryptographically verifiable SHA-256 recursive hash chain, singleton head table, SECURITY DEFINER append function, immutability triggers, streaming verification service, frontend audit explorer & verifier) |
 | **THR-06** | Privilege Escalation | High | **Mitigated (Task 02, Task 03 & Task 04)** (Server-side RBAC dependency factory, financial operations denied to Auditors, lifecycle FSM restricted to Admin) |
 | **THR-07** | Forged Requests & Parameter Tampering | High | **Mitigated (Task 03 & Task 04)** (Strict Pydantic v2 validation with `extra="forbid"`, self-transfer rejection, scale $\le 2$, single currency INR, `Decimal(20, 2)` monetary precision) |
 
@@ -86,16 +86,23 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 ---
 
 ### THR-05: Ledger Modification or Deletion (Silent Tampering)
-- **Attack Scenario**: A rogue database administrator, application bug, or SQL injection executes `UPDATE`, `DELETE`, or `TRUNCATE` on `ledger_entries` or `ledger_transactions` to conceal an illicit disbursement.
-- **Implemented Defenses (Task 03)**:
-  1. The financial ledger is strictly **append-only**.
-  2. PostgreSQL table-level privileges: table-level `INSERT`, `UPDATE`, `DELETE`, and `TRUNCATE` privileges on `ledger_entries` and `ledger_transactions` are revoked from the runtime role (`ledgerline_app`) and `PUBLIC`.
-  3. Row-level engine triggers (`trg_protect_ledger_entries_row`, `trg_protect_ledger_transactions_row`) unconditionally raise exceptions on any `UPDATE` or `DELETE`.
-  4. Statement-level engine triggers (`trg_protect_ledger_entries_truncate`, `trg_protect_ledger_transactions_truncate`) unconditionally raise exceptions on any `TRUNCATE`.
+- **Attack Scenario**: A rogue database administrator, application bug, or SQL injection executes `UPDATE`, `DELETE`, or `TRUNCATE` on `ledger_entries`, `ledger_transactions`, or `audit_events` to conceal an illicit disbursement or alter historical transaction logs.
+- **Implemented Defenses (Task 03, Task 04 & Task 06)**:
+  1. **Append-Only Financial Ledger**: PostgreSQL table-level privileges: table-level `INSERT`, `UPDATE`, `DELETE`, and `TRUNCATE` privileges on `ledger_entries` and `ledger_transactions` are revoked from the runtime role (`ledgerline_app`) and `PUBLIC`.
+  2. **Ledger Engine Immutability Triggers**: Row-level triggers (`trg_protect_ledger_entries_row`, `trg_protect_ledger_transactions_row`) and statement-level triggers (`trg_protect_ledger_entries_truncate`, `trg_protect_ledger_transactions_truncate`) unconditionally raise exceptions on any `UPDATE`, `DELETE`, or `TRUNCATE`.
+  3. **Cryptographic SHA-256 Hash Chain (Task 06)**: Every financial posting (`financial.deposit`, `financial.withdraw`, `financial.transfer`), account lifecycle event (`account.created`, `account.status_updated`), and security event (`security.user_registered`, `security.login_success`, `security.login_failure`) is bound to a linear recursive hash chain: $H_n = \text{SHA-256}(\text{CanonicalJSON}(E_n, H_{n-1}))$ starting from genesis $H_0 = \text{"0"}\times 64$.
+  4. **Controlled SECURITY DEFINER Gatekeeper**: Direct `INSERT`, `UPDATE`, `DELETE`, and `TRUNCATE` privileges on `audit_events` and `audit_chain_head` are revoked from `ledgerline_app` and `PUBLIC`. Append operations are exclusively mediated by `public.append_audit_event(...)` and head locking functions owned by `ledgerline_owner` with fixed `search_path = pg_catalog, public, pg_temp`.
+  5. **Audit Immutability Triggers**: `trg_protect_audit_events_row` and `trg_protect_audit_events_truncate` enforce absolute database-level immutability for all historical audit rows.
+  6. **Streaming Cryptographic Verification Engine**: `AuditService.verify_chain()` holds a shared snapshot lock (`SELECT ... FOR SHARE`) on `audit_chain_head` while streaming events in memory-efficient chunks (`yield_per=500`), detecting `HASH_MISMATCH`, `BROKEN_CHAIN`, `SEQUENCE_GAP`, or `HEAD_DESYNC`.
+  7. **Frontend Verifier & Explorer**: `/audit` dashboard accessible to `admin` and `auditor` providing interactive verification status banners, chain head stats, and expandable canonical payload inspectability.
 - **Verification Tests**:
   - `backend/tests/integration/test_accounts_integration.py::test_group_a_effective_postgresql_privileges`.
   - `backend/tests/integration/test_accounts_integration.py::test_group_b_immutability_triggers_on_actual_rows`.
-- **Current Status**: **Mitigated (Task 03)** (Cryptographic hash chaining scheduled for Task 05).
+  - `backend/tests/unit/test_audit_canonical.py` (7 unit tests).
+  - `backend/tests/unit/test_audit_verification_unit.py` (5 unit tests).
+  - `backend/tests/integration/test_audit_integration.py` (17 integration tests across Groups A-E).
+- **Current Status**: **Mitigated (Task 06)**.
+- **Documented Future Capability**: External anchoring (e.g. periodic head hash notarization to write-once storage or S3 Object Lock) remains documented as a future capability to address privileged DBA rewrites.
 
 ---
 

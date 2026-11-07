@@ -11,6 +11,7 @@ from backend.app.schemas.account import AccountCreate
 from backend.app.repositories.account import account_repository
 from backend.app.repositories.ledger import ledger_repository
 from backend.app.repositories.user import user_repository
+from backend.app.repositories.audit import audit_repository
 
 
 class AccountService:
@@ -59,13 +60,32 @@ class AccountService:
                 detail="Only customer accounts (customer_checking, customer_savings) can be created via API",
             )
 
-        return account_repository.create_account(
+        account = account_repository.create_account(
             db=db,
             name=account_in.name,
             account_type=account_in.account_type,
             owner_id=owner_id,
             currency=account_in.currency,
         )
+
+        audit_repository.append_event(
+            db=db,
+            event_type="account.created",
+            actor_id=current_user.id,
+            actor_role=current_user.role.value,
+            entity_type="account",
+            entity_id=account.account_number,
+            payload={
+                "account_id": str(account.id),
+                "name": account.name,
+                "account_type": account.account_type.value,
+                "currency": account.currency,
+                "owner_id": str(account.owner_id),
+            },
+        )
+        db.commit()
+        db.refresh(account)
+        return account
 
     @staticmethod
     def get_account_for_user(
@@ -137,7 +157,25 @@ class AccountService:
                     detail=f"Cannot close account with non-zero balance: ₹{account.balance}",
                 )
 
-        return account_repository.update_status(db, account, new_status)
+        prev_status = account.status.value
+        updated_account = account_repository.update_status(db, account, new_status)
+
+        audit_repository.append_event(
+            db=db,
+            event_type="account.status_updated",
+            actor_id=current_user.id,
+            actor_role=current_user.role.value,
+            entity_type="account",
+            entity_id=updated_account.account_number,
+            payload={
+                "account_id": str(updated_account.id),
+                "previous_status": prev_status,
+                "new_status": new_status.value,
+            },
+        )
+        db.commit()
+        db.refresh(updated_account)
+        return updated_account
 
     @staticmethod
     def get_account_ledger(

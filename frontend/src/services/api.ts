@@ -17,6 +17,11 @@ import type {
   TransactionListResponse,
   FinancialOperationResult,
 } from '../types/transfer';
+import type {
+  AuditListResponse,
+  VerificationResult,
+  AuditHead,
+} from '../types/audit';
 
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/v1';
@@ -201,6 +206,38 @@ export const apiService = {
     const response = await apiClient.get<TransactionListResponse>('/transfers', {
       params: { skip, limit },
     });
+    return response.data;
+  },
+
+  /**
+   * Executes full mathematical verification of the cryptographic audit chain.
+   */
+  async verifyAuditChain(): Promise<VerificationResult> {
+    const response = await apiClient.get<VerificationResult>('/audit/verify');
+    return response.data;
+  },
+
+  /**
+   * Retrieves paginated audit trail events.
+   */
+  async getAuditEvents(
+    params?: {
+      event_type?: string;
+      entity_type?: string;
+      entity_id?: string;
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<AuditListResponse> {
+    const response = await apiClient.get<AuditListResponse>('/audit/events', { params });
+    return response.data;
+  },
+
+  /**
+   * Retrieves current cryptographic chain head pointer.
+   */
+  async getAuditHead(): Promise<AuditHead> {
+    const response = await apiClient.get<AuditHead>('/audit/head');
     return response.data;
   },
 };

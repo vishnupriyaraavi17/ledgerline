@@ -1,5 +1,6 @@
 import json
 import uuid
+import hashlib
 from decimal import Decimal
 from typing import Any, List, Optional, Tuple
 from fastapi import HTTPException, status
@@ -17,6 +18,7 @@ from backend.app.schemas.transfer import (
 )
 from backend.app.repositories.ledger import ledger_repository
 from backend.app.repositories.idempotency import idempotency_repository
+from backend.app.repositories.audit import audit_repository
 
 
 class TransferService:
@@ -165,6 +167,29 @@ class TransferService:
             response_dto = TransactionResponse.model_validate(full_txn)
             response_dict = response_dto.model_dump(mode="json")
             response_json = json.dumps(response_dict)
+
+            # Stage 3 Lock: Append immutable cryptographic audit event
+            idem_hash = (
+                hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+                if idempotency_key
+                else None
+            )
+            audit_repository.append_event(
+                db=db,
+                event_type="financial.deposit",
+                actor_id=current_user.id,
+                actor_role=current_user.role.value,
+                entity_type="transaction",
+                entity_id=txn.reference,
+                payload={
+                    "transaction_id": str(txn.id),
+                    "account_id": str(customer_acc.id),
+                    "amount": str(req.amount.quantize(Decimal("0.01"))),
+                    "currency": customer_acc.currency,
+                    "description": req.description or "",
+                    "idempotency_key_hash": idem_hash,
+                },
+            )
 
             # Mark idempotency record completed within same transaction
             if record:
@@ -324,6 +349,29 @@ class TransferService:
             response_dto = TransactionResponse.model_validate(full_txn)
             response_dict = response_dto.model_dump(mode="json")
             response_json = json.dumps(response_dict)
+
+            # Stage 3 Lock: Append immutable cryptographic audit event
+            idem_hash = (
+                hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+                if idempotency_key
+                else None
+            )
+            audit_repository.append_event(
+                db=db,
+                event_type="financial.withdraw",
+                actor_id=current_user.id,
+                actor_role=current_user.role.value,
+                entity_type="transaction",
+                entity_id=txn.reference,
+                payload={
+                    "transaction_id": str(txn.id),
+                    "account_id": str(customer_acc.id),
+                    "amount": str(req.amount.quantize(Decimal("0.01"))),
+                    "currency": customer_acc.currency,
+                    "description": req.description or "",
+                    "idempotency_key_hash": idem_hash,
+                },
+            )
 
             if record:
                 idempotency_repository.mark_completed(
@@ -503,6 +551,30 @@ class TransferService:
             response_dto = TransactionResponse.model_validate(full_txn)
             response_dict = response_dto.model_dump(mode="json")
             response_json = json.dumps(response_dict)
+
+            # Stage 3 Lock: Append immutable cryptographic audit event
+            idem_hash = (
+                hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+                if idempotency_key
+                else None
+            )
+            audit_repository.append_event(
+                db=db,
+                event_type="financial.transfer",
+                actor_id=current_user.id,
+                actor_role=current_user.role.value,
+                entity_type="transaction",
+                entity_id=txn.reference,
+                payload={
+                    "transaction_id": str(txn.id),
+                    "source_account_id": str(source_acc.id),
+                    "destination_account_id": str(dest_acc.id),
+                    "amount": str(req.amount.quantize(Decimal("0.01"))),
+                    "currency": source_acc.currency,
+                    "description": req.description or "",
+                    "idempotency_key_hash": idem_hash,
+                },
+            )
 
             if record:
                 idempotency_repository.mark_completed(

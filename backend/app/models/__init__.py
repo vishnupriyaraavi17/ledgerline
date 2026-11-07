@@ -7,6 +7,7 @@ from backend.app.models.user import User, UserRole
 from backend.app.models.account import Account, AccountType, AccountStatus
 from backend.app.models.ledger import LedgerTransaction, LedgerEntry, EntryType, TransactionType
 from backend.app.models.idempotency import IdempotencyRecord
+from backend.app.models.audit import AuditEvent, AuditChainHead
 
 __all__ = [
     "Base",
@@ -20,4 +21,6 @@ __all__ = [
     "EntryType",
     "TransactionType",
     "IdempotencyRecord",
+    "AuditEvent",
+    "AuditChainHead",
 ]
