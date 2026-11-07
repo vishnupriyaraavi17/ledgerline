@@ -254,5 +254,58 @@ This log records interactions with AI assistants throughout the construction of 
   - Frontend Production Build: `npm run build` compiled cleanly in 2.82s.
 - **Commit Link**: `9c7a14dc55e2ee244ef338f7b264debd5e3771c1`
 
+---
+
+### Entry 06 — 2026-11-07
+- **Task / Goal**: Task 06: Cryptographically Verifiable Audit Trail (SHA-256 Recursive Hash Chaining, Singleton Head Table, SECURITY DEFINER Append & Head Locking, Immutability Engine Triggers, Streaming Cryptographic Verifier, Frontend Verifier & Explorer).
+- **Prompt Given**:
+  > "Task 06: Cryptographically Verifiable Audit Trail — IMPLEMENTATION AUTHORIZED. Implement the approved Revision 2 of implementation_plan.md. Follow the plan's scope, database architecture, security boundaries, canonicalization rules, lock hierarchy, verification behavior, frontend requirements, tests, and documentation updates. Additional implementation safeguards: 1. Ensure PUBLIC and ledgerline_app cannot CREATE objects in the public schema, protecting the SECURITY DEFINER function's search path. 2. Reject timezone-naive timestamps. 3. Explicitly handle JSONB parameter binding when invoking append_audit_event(). 4. Keep failed-login identifiers length-limited and never log passwords, password hashes, tokens, or authorization headers. Important: Preserve all completed Tasks 01–05 behavior and tests. Do not weaken existing database permissions, financial invariants, idempotency, RBAC, or authorization. Do not introduce real-money functionality. Run the complete backend regression and new Task 06 tests, PostgreSQL integration tests, migration reversibility checks, and frontend production build. Update THREATS.md, PROMPTS.md, and walkthrough.md as specified. Use incremental Git commits..."
+- **AI Output Summary**:
+  The AI implemented:
+  1. *Alembic Migration 0006 (`0006_cryptographic_audit_trail.py`)*:
+     - Pre-flight checks asserting migration runner is `ledgerline_owner`, runtime role is `ledgerline_app`, security attributes in `pg_roles` are intact, and `pg_auth_members` is 0.
+     - Created `public.audit_chain_head` singleton table with genesis row `(id=1, sequence_number=0, current_hash='0'*64)`.
+     - Created `public.audit_events` append-only table.
+     - Implemented engine immutability triggers `prevent_audit_events_modification` and `prevent_audit_chain_head_modification`.
+     - Created hardened `SECURITY DEFINER` functions: `public.append_audit_event(...)`, `public.acquire_audit_chain_head()`, and `public.lock_audit_chain_head_for_share()` with safe search paths (`pg_catalog, public, pg_temp`).
+     - Revoked direct modifications (`INSERT, UPDATE, DELETE, TRUNCATE`) and schema `CREATE` from `ledgerline_app` and `PUBLIC`.
+     - Granted minimal `SELECT` and `EXECUTE` privileges to `ledgerline_app`.
+  2. *Domain Model & Schemas (`backend/app/models/audit.py`, `backend/app/schemas/audit.py`)*:
+     - `AuditEvent`, `AuditChainHead`, `AuditEventResponse`, `AuditListResponse`, `TamperDetail`, `VerificationResult`.
+  3. *Repository & Canonicalization (`backend/app/repositories/audit.py`)*:
+     - Single-pass payload normalization (`canonicalize_payload`) for dicts (sorted keys), lists, Decimals (2 decimal fixed string), UUIDs, nulls, booleans, strings.
+     - Strict microsecond UTC timestamp normalization (`%Y-%m-%dT%H:%M:%S.%fZ`), failing closed on naive timestamps.
+     - `AuditRepository.append_event` using Stage 3 lock hierarchy via `acquire_audit_chain_head()` and `append_audit_event()` with zero post-lock queries before commit.
+  4. *Verification Engine (`backend/app/services/audit.py`)*:
+     - `verify_chain()` holds snapshot lock `SELECT ... FOR SHARE` on `audit_chain_head`, streams records in memory-efficient chunks (`yield_per=500`), detecting `HASH_MISMATCH`, `BROKEN_CHAIN`, `SEQUENCE_GAP`, and `HEAD_DESYNC`.
+  5. *Cross-Cutting Event Hooking*:
+     - `financial.deposit`, `financial.withdraw`, `financial.transfer` with SHA-256 hashed idempotency keys.
+     - `account.created` and `account.status_updated`.
+     - `security.user_registered`, `security.login_success`, and isolated best-effort `security.login_failure` with `actor_id = NULL`, generic `login_attempt` entity, truncated identifier, and no passwords/tokens/IPs.
+  6. *REST API & RBAC*:
+     - `/api/v1/audit/verify`, `/api/v1/audit/events`, `/api/v1/audit/head` restricted to `admin` and `auditor` (`account_holder` receives HTTP 403).
+  7. *Frontend Verifier & Audit Explorer*:
+     - `/audit` page with interactive verification banner (Emerald for verified, Rose for tamper detected), chain head summary cards, filter bar, pagination, and expandable canonical JSON payloads.
+  8. *Automated Test Suite*:
+     - 12 unit tests (`test_audit_canonical.py`, `test_audit_verification_unit.py`) and 17 PostgreSQL integration tests (`test_audit_integration.py`).
+     - Total: 149 tests passing (74 unit + 75 integration) with 100% pass rate.
+- **Specific Issues Discovered**:
+  1. *PostgreSQL Locking Clause Privilege Constraint*: PostgreSQL enforces that `SELECT ... FOR UPDATE` and `SELECT ... FOR SHARE` require `UPDATE` privilege on the table. Since direct `UPDATE` was revoked from `ledgerline_app` to prevent tampering, direct locking queries in Python raised `InsufficientPrivilege`. Resolved by encapsulating head locking within dedicated `SECURITY DEFINER` functions (`acquire_audit_chain_head()` and `lock_audit_chain_head_for_share()`) owned by `ledgerline_owner`.
+  2. *Superuser Constraint on `DISABLE TRIGGER ALL` in Simulated Tampering Tests*: PostgreSQL forbids non-superusers from disabling referential integrity system triggers via `DISABLE TRIGGER ALL`. Resolved by specifically targeting the user-defined immutability trigger `ALTER TABLE public.audit_events DISABLE TRIGGER trg_protect_audit_events_row;`.
+  3. *Unit Test Mock Mappings vs Scalared Results*: Refactoring `verify_chain` to use `lock_audit_chain_head_for_share()` returned a mapped row dictionary rather than an ORM model instance, requiring unit test mocks to mock `.mappings().one()`.
+  4. *Entity Reference in Financial Transfers*: Financial transaction audit events record human-readable `txn.reference` as `entity_id` and include `transaction_id` in the canonical payload, requiring test assertions to query `entity_id = tx_ref`.
+- **Corrections Applied**:
+  - Implemented `public.acquire_audit_chain_head()` and `public.lock_audit_chain_head_for_share()` `SECURITY DEFINER` functions.
+  - Updated simulated tamper integration tests to target user trigger `trg_protect_audit_events_row`.
+  - Added `"currency"` to financial event canonical payloads.
+  - Updated unit test mocks for mapped database results.
+- **Verification Performed**:
+  - Full Backend Suite: 149 passed in 19.27s (0 failed).
+  - Migration Reversibility: `alembic downgrade -1` -> `alembic upgrade head` verified clean.
+  - Concurrency Test: 10 concurrent threads transfer without deadlocks or sequence gaps.
+  - Frontend Build: `npm run build` compiled in 3.45s with zero errors.
+- **Commit Link**: `2db8bc8`
+
+
 
 
