@@ -252,7 +252,7 @@ This log records interactions with AI assistants throughout the construction of 
   - Full Backend Suite: 120 passed in 14.54s.
   - Runtime Role Privileges: Direct test verified `ledgerline_app` has `SELECT, INSERT, UPDATE` but is denied `DELETE` on `idempotency_records`.
   - Frontend Production Build: `npm run build` compiled cleanly in 2.82s.
-- **Commit Link**: [Pending authorization]
+- **Commit Link**: `9c7a14dc55e2ee244ef338f7b264debd5e3771c1`
 
 
 
