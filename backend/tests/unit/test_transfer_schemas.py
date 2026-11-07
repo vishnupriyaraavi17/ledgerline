@@ -95,15 +95,15 @@ def test_transfer_request_valid():
     assert req.description == "Dinner split"
 
 
-def test_transfer_request_rejects_self_transfer():
+def test_transfer_request_allows_self_transfer_payload_for_service_refusal():
     acc_id = uuid.uuid4()
-    with pytest.raises(ValidationError) as exc_info:
-        TransferRequest(
-            source_account_id=acc_id,
-            destination_account_id=acc_id,
-            amount=Decimal("100.00"),
-        )
-    assert "Source and destination accounts must be distinct" in str(exc_info.value)
+    req = TransferRequest(
+        source_account_id=acc_id,
+        destination_account_id=acc_id,
+        amount=Decimal("100.00"),
+    )
+    assert req.source_account_id == acc_id
+    assert req.destination_account_id == acc_id
 
 
 def test_transfer_request_rejects_extra_fields():

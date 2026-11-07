@@ -22,6 +22,7 @@ import type {
   VerificationResult,
   AuditHead,
 } from '../types/audit';
+import type { AccountStatementResponse } from '../types/statement';
 
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/v1';
@@ -238,6 +239,41 @@ export const apiService = {
    */
   async getAuditHead(): Promise<AuditHead> {
     const response = await apiClient.get<AuditHead>('/audit/head');
+    return response.data;
+  },
+
+  /**
+   * Retrieves mathematically verified account statement for interval [startDate, endDate).
+   */
+  async getAccountStatement(
+    accountId: string,
+    startDate?: string,
+    endDate?: string,
+    page: number = 1,
+    pageSize: number = 50
+  ): Promise<AccountStatementResponse> {
+    const params: Record<string, any> = { page, page_size: pageSize };
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+    const response = await apiClient.get<AccountStatementResponse>(`/accounts/${accountId}/statement`, { params });
+    return response.data;
+  },
+
+  /**
+   * Exports account statement as an RFC 4180 CSV blob protected against formula injection.
+   */
+  async exportAccountStatementCsv(
+    accountId: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<Blob> {
+    const params: Record<string, any> = { format: 'csv' };
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+    const response = await apiClient.get(`/accounts/${accountId}/statement/export`, {
+      params,
+      responseType: 'blob',
+    });
     return response.data;
   },
 };

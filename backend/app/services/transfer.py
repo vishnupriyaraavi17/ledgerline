@@ -19,6 +19,7 @@ from backend.app.schemas.transfer import (
 from backend.app.repositories.ledger import ledger_repository
 from backend.app.repositories.idempotency import idempotency_repository
 from backend.app.repositories.audit import audit_repository
+from backend.app.repositories.refusal import refusal_repository
 
 
 class TransferService:
@@ -86,6 +87,16 @@ class TransferService:
             # 3. Check for replay or parameter conflict on completed record
             if record and record.status == "completed":
                 if record.request_hash != request_hash:
+                    refusal_repository.record_refusal(
+                        user_id=current_user.id,
+                        operation_type="deposit",
+                        account_id=req.account_id,
+                        counterparty_account_id=None,
+                        amount=req.amount,
+                        refusal_reason="IDEMPOTENCY_CONFLICT",
+                        error_message="Idempotency key was previously used with a different request payload.",
+                        idempotency_key_hash=hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None,
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail="Idempotency key was previously used with a different request payload.",
@@ -131,9 +142,26 @@ class TransferService:
 
             # Status check
             if customer_acc.status != AccountStatus.ACTIVE:
+                user_id_val = current_user.id
+                acc_id_val = customer_acc.id
+                amount_val = req.amount
+                reason_code = "ACCOUNT_FROZEN" if customer_acc.status == AccountStatus.FROZEN else "ACCOUNT_CLOSED"
+                msg = f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts"
+                idem_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None
+                db.rollback()
+                refusal_repository.record_refusal(
+                    user_id=user_id_val,
+                    operation_type="deposit",
+                    account_id=acc_id_val,
+                    counterparty_account_id=None,
+                    amount=amount_val,
+                    refusal_reason=reason_code,
+                    error_message=msg,
+                    idempotency_key_hash=idem_hash,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts",
+                    detail=msg,
                 )
 
             # Resolve system clearing transit account
@@ -262,6 +290,16 @@ class TransferService:
             # 3. Check for replay or parameter conflict on completed record
             if record and record.status == "completed":
                 if record.request_hash != request_hash:
+                    refusal_repository.record_refusal(
+                        user_id=current_user.id,
+                        operation_type="withdraw",
+                        account_id=req.account_id,
+                        counterparty_account_id=None,
+                        amount=req.amount,
+                        refusal_reason="IDEMPOTENCY_CONFLICT",
+                        error_message="Idempotency key was previously used with a different request payload.",
+                        idempotency_key_hash=hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None,
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail="Idempotency key was previously used with a different request payload.",
@@ -307,13 +345,45 @@ class TransferService:
 
             # Status check
             if customer_acc.status != AccountStatus.ACTIVE:
+                user_id_val = current_user.id
+                acc_id_val = customer_acc.id
+                amount_val = req.amount
+                reason_code = "ACCOUNT_FROZEN" if customer_acc.status == AccountStatus.FROZEN else "ACCOUNT_CLOSED"
+                msg = f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts"
+                idem_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None
+                db.rollback()
+                refusal_repository.record_refusal(
+                    user_id=user_id_val,
+                    operation_type="withdraw",
+                    account_id=acc_id_val,
+                    counterparty_account_id=None,
+                    amount=amount_val,
+                    refusal_reason=reason_code,
+                    error_message=msg,
+                    idempotency_key_hash=idem_hash,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Account is {customer_acc.status.value}; transactions are only permitted on active accounts",
+                    detail=msg,
                 )
 
             # Sufficiency check: Customer balance must cover withdrawal amount
             if customer_acc.balance < req.amount:
+                user_id_val = current_user.id
+                acc_id_val = customer_acc.id
+                amount_val = req.amount
+                idem_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None
+                db.rollback()
+                refusal_repository.record_refusal(
+                    user_id=user_id_val,
+                    operation_type="withdraw",
+                    account_id=acc_id_val,
+                    counterparty_account_id=None,
+                    amount=amount_val,
+                    refusal_reason="INSUFFICIENT_FUNDS",
+                    error_message="Insufficient funds",
+                    idempotency_key_hash=idem_hash,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Insufficient funds",
@@ -444,6 +514,16 @@ class TransferService:
             # 3. Check for replay or parameter conflict on completed record
             if record and record.status == "completed":
                 if record.request_hash != request_hash:
+                    refusal_repository.record_refusal(
+                        user_id=current_user.id,
+                        operation_type="transfer",
+                        account_id=req.source_account_id,
+                        counterparty_account_id=req.destination_account_id,
+                        amount=req.amount,
+                        refusal_reason="IDEMPOTENCY_CONFLICT",
+                        error_message="Idempotency key was previously used with a different request payload.",
+                        idempotency_key_hash=hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None,
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail="Idempotency key was previously used with a different request payload.",
@@ -457,13 +537,6 @@ class TransferService:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Auditors are not permitted to perform financial operations",
-                )
-
-            # Self-transfer check
-            if req.source_account_id == req.destination_account_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Source and destination accounts must be distinct",
                 )
 
             # Deadlock-free deterministic row locking ordered by UUID
@@ -491,6 +564,28 @@ class TransferService:
                         detail="Account not found",
                     )
 
+            # Self-transfer check
+            if req.source_account_id == req.destination_account_id:
+                user_id_val = current_user.id
+                src_id_val = req.source_account_id
+                amount_val = req.amount
+                idem_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None
+                db.rollback()
+                refusal_repository.record_refusal(
+                    user_id=user_id_val,
+                    operation_type="transfer",
+                    account_id=src_id_val,
+                    counterparty_account_id=src_id_val,
+                    amount=amount_val,
+                    refusal_reason="SELF_TRANSFER_PROHIBITED",
+                    error_message="Source and destination accounts must be distinct",
+                    idempotency_key_hash=idem_hash,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Source and destination accounts must be distinct",
+                )
+
             # Destination account existence check
             if not dest_acc:
                 raise HTTPException(
@@ -511,18 +606,70 @@ class TransferService:
 
             # Status check: both accounts must be active
             if source_acc.status != AccountStatus.ACTIVE:
+                user_id_val = current_user.id
+                src_id_val = source_acc.id
+                dst_id_val = dest_acc.id if dest_acc else None
+                amount_val = req.amount
+                reason_code = "ACCOUNT_FROZEN" if source_acc.status == AccountStatus.FROZEN else "ACCOUNT_CLOSED"
+                msg = f"Source account is {source_acc.status.value}; transactions are only permitted on active accounts"
+                idem_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None
+                db.rollback()
+                refusal_repository.record_refusal(
+                    user_id=user_id_val,
+                    operation_type="transfer",
+                    account_id=src_id_val,
+                    counterparty_account_id=dst_id_val,
+                    amount=amount_val,
+                    refusal_reason=reason_code,
+                    error_message=msg,
+                    idempotency_key_hash=idem_hash,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Source account is {source_acc.status.value}; transactions are only permitted on active accounts",
+                    detail=msg,
                 )
             if dest_acc.status != AccountStatus.ACTIVE:
+                user_id_val = current_user.id
+                src_id_val = source_acc.id
+                dst_id_val = dest_acc.id
+                amount_val = req.amount
+                reason_code = "DESTINATION_FROZEN" if dest_acc.status == AccountStatus.FROZEN else "DESTINATION_CLOSED"
+                msg = f"Destination account is {dest_acc.status.value}; transactions are only permitted on active accounts"
+                idem_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None
+                db.rollback()
+                refusal_repository.record_refusal(
+                    user_id=user_id_val,
+                    operation_type="transfer",
+                    account_id=src_id_val,
+                    counterparty_account_id=dst_id_val,
+                    amount=amount_val,
+                    refusal_reason=reason_code,
+                    error_message=msg,
+                    idempotency_key_hash=idem_hash,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Destination account is {dest_acc.status.value}; transactions are only permitted on active accounts",
+                    detail=msg,
                 )
 
             # Sufficiency check: Source account balance must cover transfer amount
             if source_acc.balance < req.amount:
+                user_id_val = current_user.id
+                src_id_val = source_acc.id
+                dst_id_val = dest_acc.id
+                amount_val = req.amount
+                idem_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest() if idempotency_key else None
+                db.rollback()
+                refusal_repository.record_refusal(
+                    user_id=user_id_val,
+                    operation_type="transfer",
+                    account_id=src_id_val,
+                    counterparty_account_id=dst_id_val,
+                    amount=amount_val,
+                    refusal_reason="INSUFFICIENT_FUNDS",
+                    error_message="Insufficient funds",
+                    idempotency_key_hash=idem_hash,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Insufficient funds",

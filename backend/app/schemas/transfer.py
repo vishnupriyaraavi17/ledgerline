@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.app.models.ledger import TransactionType
 from backend.app.schemas.ledger import LedgerEntryResponse
@@ -57,12 +57,6 @@ class TransferRequest(BaseModel):
     @classmethod
     def check_amount(cls, v: Decimal) -> Decimal:
         return validate_monetary_amount(v)
-
-    @model_validator(mode="after")
-    def check_distinct_accounts(self) -> "TransferRequest":
-        if self.source_account_id == self.destination_account_id:
-            raise ValueError("Source and destination accounts must be distinct. Self-transfers are prohibited.")
-        return self
 
 
 class TransactionResponse(BaseModel):

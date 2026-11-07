@@ -20,6 +20,8 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
 
 | **THR-08** | Database Failure & Connection Outages | High | **Mitigated (Foundation Phase)** (Tested via real PostgreSQL probe, pooling & error masking) |
 | **THR-09** | Direct Balance Modification & System Account Spoofing | Critical | **Mitigated (Task 03)** (PostgreSQL column-level grants excluding `balance`, trigger `trg_enforce_account_creation_permissions` guarding system accounts and `ACC-SYSTEM[0-9]{2}`) |
+| **THR-10** | Inaccurate Statement Balances & Temporal Desynchronization | High | **Mitigated (Task 07)** (Strict UTC half-open interval $[start\_date, end\_date)$, full-period calculation before pagination, sequential running balances, `REPEATABLE READ READ ONLY` snapshot isolation) |
+| **THR-11** | Ledger Contamination & Spreadsheet Injection via Refused Operations | High | **Mitigated (Task 07)** (Isolated autonomous transactions to `refused_operations`, zero rows written to `ledger_transactions` or `ledger_entries`, append-only immutability triggers, RFC 4180 CSV formula sanitization) |
 
 ---
 
@@ -152,6 +154,34 @@ In accordance with LedgerLine engineering standards, **no threat is marked as "M
   - `backend/tests/integration/test_accounts_integration.py::test_group_a_privilege_and_trigger_enforcement_under_runtime_role`.
   - `backend/tests/integration/test_accounts_integration.py::test_group_b_owner_role_system_account_creation_trigger`.
 - **Current Status**: **Mitigated (Task 03)**.
+
+---
+
+### THR-10: Inaccurate Statement Balances & Temporal Desynchronization
+- **Attack / Defect Scenario**: Generating account statements while concurrent financial postings occur can produce non-deterministic balances, distorted opening balances, or page-boundary calculation resets where pagination offsets recalculate or omit running balances. Additionally, ambiguous timezone offsets or closed date intervals ($[start, end]$) can cause boundary transaction duplication or omission across statements.
+- **Implemented Defenses (Task 07)**:
+  1. **Strict UTC Half-Open Date Interval**: Statement windows are strictly defined as $[start\_date, end\_date)$ with timezone awareness required (rejects naive datetimes and ensures $start\_date < end\_date$).
+  2. **Consistent Snapshot Isolation**: Statement generation executes within a PostgreSQL transaction with isolation level `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;`. This guarantees that opening balance calculations, entry fetches, and closing balances reflect a point-in-time immutable snapshot undisturbed by concurrent deposits or transfers.
+  3. **Full-Period Calculation Prior to Pagination**: Opening balance is derived from all entries strictly prior to $start\_date$. All entries within the statement period are fetched and processed chronologically ($created\_at \text{ ASC}, sequence \text{ ASC}, id \text{ ASC}$) to compute total credits, total debits, net change, closing balance, and sequential running balances. Pagination is applied as a slice over this precomputed timeline, ensuring running balances and summary cards are 100% invariant across all pages.
+  4. **Strict Customer Account Scoping**: System accounts (`ACC-SYSTEM01`, `ACC-SYSTEM02`) are rejected with `HTTP 400 Bad Request`, preventing internal liquidity pools from being exposed as customer statements with incorrect normal-balance assumptions.
+- **Verification Tests**:
+  - `backend/tests/unit/test_statement_calculations.py` (running balance invariance, pagination slice consistency, mathematical verification).
+  - `backend/tests/unit/test_statement_schemas.py` (timezone validation, interval validation).
+  - `backend/tests/integration/test_statements_integration.py` (Group A: math verification, Group B: pagination invariance, Group D: snapshot isolation under concurrent transfers).
+- **Current Status**: **Mitigated (Task 07)**.
+
+---
+
+### THR-11: Ledger Contamination & Spreadsheet Injection via Refused Operations
+- **Attack Scenario**: Refused or failed operations (insufficient funds, frozen/closed accounts, idempotency payload conflicts) might inadvertently insert zero-amount or phantom rows into the immutable double-entry ledger, corrupting balance reconciliations. Additionally, malicious users entering formula payloads (`=cmd|...` or `-2+3`) in transfer descriptions or refusal messages could achieve spreadsheet formula injection / CSV injection (CWE-1236) when administrators or accountants export statements to CSV.
+- **Implemented Defenses (Task 07)**:
+  1. **Zero Ledger Contamination**: Refused operations NEVER write to `ledger_transactions` or `ledger_entries`. All rejections are caught prior to commit, the financial transaction is aborted via `db.rollback()`, and operational diagnostics are recorded into an independent table `refused_operations` in an isolated autonomous database session.
+  2. **Database Engine Immutability Triggers**: `refused_operations` is protected by `trg_protect_refused_operations_row` and `trg_protect_refused_operations_truncate`, which unconditionally raise exceptions on any `UPDATE`, `DELETE`, or `TRUNCATE`.
+  3. **Dual-Account Refusal Visibility**: Refused inter-account transfers record both `account_id` and `counterparty_account_id` with foreign key `ON DELETE RESTRICT` constraints, allowing both sender and intended recipient to audit the refusal without leaking ledger state.
+  4. **Spreadsheet Formula Injection Defense**: When generating RFC 4180 CSV exports, all text fields (account numbers, references, descriptions, refusal reasons, counterparty details) starting with sensitive formula characters (`=`, `+`, `-`, `@`, `\t`, `\r`) are neutralized with a leading single quote (`'`), preventing code execution or external data exfiltration in Excel/LibreOffice.
+- **Verification Tests**:
+  - `backend/tests/integration/test_statements_integration.py` (Group C: refusal recording without ledger contamination, dual-account visibility, Group E: CSV export and formula injection sanitization, Group F: database trigger immutability).
+- **Current Status**: **Mitigated (Task 07)**.
 
 ---
 

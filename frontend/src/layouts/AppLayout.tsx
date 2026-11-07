@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom';
-import { ShieldCheck, BookOpen, Layers, ArrowLeftRight, FileText, ExternalLink, Users, LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { ShieldCheck, BookOpen, Layers, ArrowLeftRight, FileText, FileSpreadsheet, ExternalLink, Users, LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useHealth } from '../hooks/useHealth';
 import { useAuth } from '../context/AuthContext';
 import { HealthBadge } from '../components/HealthBadge';
@@ -156,6 +156,21 @@ export const AppLayout: React.FC = () => {
               <ArrowLeftRight className="w-4 h-4" />
               <span>Transfers</span>
               <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 rounded font-semibold">Task 04</span>
+            </NavLink>
+
+            <NavLink
+              to="/statements"
+              className={({ isActive }) =>
+                `px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition inline-flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`
+              }
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Statements</span>
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 rounded font-semibold">Task 07</span>
             </NavLink>
 
 

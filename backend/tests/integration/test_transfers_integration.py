@@ -361,7 +361,7 @@ def test_group_a_self_transfer_prohibited(client: TestClient, holder_token: str)
             "amount": "50.00",
         },
     )
-    assert xfer_res.status_code == 422
+    assert xfer_res.status_code == 400
     assert "Source and destination accounts must be distinct" in xfer_res.text
 
 

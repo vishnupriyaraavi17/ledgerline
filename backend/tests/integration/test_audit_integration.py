@@ -924,8 +924,8 @@ def test_group_e_alembic_migration_0006_reversibility():
     alembic_cfg = Config(str(alembic_ini_path))
     alembic_cfg.set_main_option("script_location", str(project_root / "backend" / "alembic"))
 
-    # 1. Downgrade 1 revision (reverts 0006)
-    command.downgrade(alembic_cfg, "-1")
+    # 1. Downgrade revisions to revert 0006 (down to 0005)
+    command.downgrade(alembic_cfg, "0005_idempotency_records")
 
     # 2. Upgrade back to head (re-applies 0006)
     command.upgrade(alembic_cfg, "head")
