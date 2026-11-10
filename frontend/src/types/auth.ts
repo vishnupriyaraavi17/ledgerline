@@ -27,6 +27,12 @@ export interface UserCreateInput {
   role: UserRole;
 }
 
+export interface UserRegisterInput {
+  username: string;
+  email: string;
+  password: string;
+}
+
 export interface UserListResponse {
   items: User[];
   total: number;

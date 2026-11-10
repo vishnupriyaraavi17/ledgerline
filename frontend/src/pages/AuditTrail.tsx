@@ -106,37 +106,37 @@ export const AuditTrailPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="space-y-6 font-sans">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-2 border-b border-[#E3E9E2]">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">Cryptographic Audit Trail</h1>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-              Task 06
+            <h1 className="text-2xl font-serif font-bold text-[#1D2B27]">Audit Trail</h1>
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#DCE9DF] text-[#245344] border border-[#C5D9C9]">
+              Immutable
             </span>
           </div>
-          <p className="text-sm text-gray-500 mt-1">
-            Indisputable, append-only SHA-256 linear hash chain verifying financial movements and security events.
+          <p className="text-xs text-[#6D7C73] mt-1">
+            A tamper-evident, verified record of financial movements and security events.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <button
             onClick={() => loadData()}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-[#1D2B27] bg-white border border-[#E3E9E2] rounded-xl hover:bg-[#F1F4EF] disabled:opacity-50 transition cursor-pointer shadow-2xs"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#245344]' : ''}`} />
+            <span>Refresh</span>
           </button>
           <button
             onClick={handleVerify}
             disabled={verifying}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors shadow-sm"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#245344] hover:bg-[#1B3F34] rounded-xl disabled:opacity-50 transition shadow-xs cursor-pointer"
           >
-            <ShieldCheck className={`w-4 h-4 ${verifying ? 'animate-spin' : ''}`} />
-            {verifying ? 'Verifying Chain...' : 'Verify Cryptographic Chain'}
+            <ShieldCheck className={`w-4 h-4 text-[#DCE9DF] ${verifying ? 'animate-spin' : ''}`} />
+            <span>{verifying ? 'Verifying Integrity...' : 'Verify Audit Integrity'}</span>
           </button>
         </div>
       </div>
@@ -152,21 +152,21 @@ export const AuditTrailPage: React.FC = () => {
       {/* Verification Status Banner */}
       {verification && (
         <div
-          className={`border rounded-xl p-5 ${
+          className={`border rounded-2xl p-5 ${
             verification.is_valid
-              ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+              ? 'bg-[#DCE9DF]/40 border-[#C5D9C9] text-[#245344]'
               : 'bg-rose-50 border-rose-300 text-rose-900'
           }`}
         >
           <div className="flex items-start gap-4">
             {verification.is_valid ? (
-              <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-6 h-6 text-[#245344] shrink-0 mt-0.5" />
             ) : (
               <ShieldAlert className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
             )}
             <div className="flex-1">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold">
+                <h3 className="text-base font-bold text-[#1D2B27]">
                   {verification.is_valid
                     ? 'Cryptographic Chain Verified Intact'
                     : 'Tampering Detected in Cryptographic Audit Chain!'}
@@ -175,14 +175,14 @@ export const AuditTrailPage: React.FC = () => {
                   Verified at: {new Date(verification.verified_at).toLocaleTimeString()}
                 </span>
               </div>
-              <p className="text-sm mt-1">
+              <p className="text-sm mt-1 text-[#1D2B27]">
                 {verification.is_valid
                   ? `All ${verification.total_events} events sequentially verified from genesis. Every parent hash pointer and SHA-256 payload digest matches.`
                   : `Chain verification failed at sequence #${verification.tamper_details?.sequence_number}: ${verification.tamper_details?.message}`}
               </p>
 
               {verification.tamper_details && (
-                <div className="mt-3 bg-white/80 rounded-lg p-3 text-xs font-mono space-y-1 border border-rose-200">
+                <div className="mt-3 bg-white/80 rounded-xl p-3 text-xs font-mono space-y-1 border border-rose-200">
                   <div>
                     <span className="font-semibold text-gray-700">Failure Type:</span>{' '}
                     <span className="text-rose-700 font-bold">{verification.tamper_details.failure_type}</span>
@@ -210,55 +210,55 @@ export const AuditTrailPage: React.FC = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+        <div className="bg-white border border-[#E3E9E2] rounded-2xl p-5 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Audit Records</span>
-            <FileText className="w-5 h-5 text-gray-400" />
+            <span className="text-xs font-semibold text-[#6D7C73] uppercase tracking-wider">Total Audit Records</span>
+            <FileText className="w-5 h-5 text-[#245344]" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-gray-900">{totalEvents.toLocaleString()}</div>
-          <p className="text-xs text-gray-500 mt-1">Append-only events recorded</p>
+          <div className="mt-2 text-2xl font-serif font-bold text-[#1D2B27]">{totalEvents.toLocaleString()}</div>
+          <p className="text-xs text-[#6D7C73] mt-1">Append-only events recorded</p>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+        <div className="bg-white border border-[#E3E9E2] rounded-2xl p-5 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Latest Sequence</span>
-            <Activity className="w-5 h-5 text-gray-400" />
+            <span className="text-xs font-semibold text-[#6D7C73] uppercase tracking-wider">Latest Sequence</span>
+            <Activity className="w-5 h-5 text-[#245344]" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-gray-900">
+          <div className="mt-2 text-2xl font-serif font-bold text-[#1D2B27]">
             {head ? `#${head.sequence_number}` : '—'}
           </div>
-          <p className="text-xs text-gray-500 mt-1">Monotonic sequential index</p>
+          <p className="text-xs text-[#6D7C73] mt-1">Monotonic sequential index</p>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+        <div className="bg-white border border-[#E3E9E2] rounded-2xl p-5 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Chain Head Hash</span>
-            <KeyRound className="w-5 h-5 text-gray-400" />
+            <span className="text-xs font-semibold text-[#6D7C73] uppercase tracking-wider">Chain Head Hash</span>
+            <KeyRound className="w-5 h-5 text-[#245344]" />
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <span className="font-mono text-sm font-bold text-gray-800 truncate">
+            <span className="font-mono text-sm font-bold text-[#1D2B27] truncate">
               {head ? `${head.current_hash.slice(0, 16)}...` : '—'}
             </span>
             {head && (
               <button
                 onClick={() => copyToClipboard(head.current_hash, 'head')}
-                className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
+                className="p-1 text-[#6D7C73] hover:text-[#1D2B27] rounded transition cursor-pointer"
                 title="Copy full 64-char hash"
               >
-                {copiedHash === 'head' ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                {copiedHash === 'head' ? <Check className="w-4 h-4 text-[#245344]" /> : <Copy className="w-4 h-4" />}
               </button>
             )}
           </div>
-          <p className="text-xs text-gray-500 mt-1">SHA-256 state digest</p>
+          <p className="text-xs text-[#6D7C73] mt-1">SHA-256 state digest</p>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-wrap gap-4 items-center justify-between">
+      <div className="bg-white border border-[#E3E9E2] rounded-2xl p-4 shadow-xs flex flex-wrap gap-4 items-center justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-400" />
-            <span className="text-xs font-semibold text-gray-600 uppercase">Filters:</span>
+            <Filter className="w-4 h-4 text-[#6D7C73]" />
+            <span className="text-xs font-semibold text-[#1D2B27] uppercase">Filters:</span>
           </div>
 
           <select
@@ -267,7 +267,7 @@ export const AuditTrailPage: React.FC = () => {
               setSelectedEventType(e.target.value);
               setPage(0);
             }}
-            className="text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-slate-900"
+            className="text-xs border border-[#E3E9E2] rounded-xl px-3 py-1.5 bg-[#F1F4EF] text-[#1D2B27] focus:outline-none focus:ring-2 focus:ring-[#245344]"
           >
             <option value="">All Event Types</option>
             <option value="financial.deposit">financial.deposit</option>
@@ -286,7 +286,7 @@ export const AuditTrailPage: React.FC = () => {
               setEntityTypeFilter(e.target.value);
               setPage(0);
             }}
-            className="text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-slate-900"
+            className="text-xs border border-[#E3E9E2] rounded-xl px-3 py-1.5 bg-[#F1F4EF] text-[#1D2B27] focus:outline-none focus:ring-2 focus:ring-[#245344]"
           >
             <option value="">All Entities</option>
             <option value="transaction">transaction</option>
@@ -296,52 +296,52 @@ export const AuditTrailPage: React.FC = () => {
           </select>
         </div>
 
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-[#6D7C73]">
           Showing {events.length} of {totalEvents} events
         </div>
       </div>
 
       {/* Audit Event Table */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-[#E3E9E2] rounded-2xl shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-[#E3E9E2]">
+            <thead className="bg-[#F1F4EF]">
               <tr>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-[#6D7C73] uppercase tracking-wider w-16">
                   Seq
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-[#6D7C73] uppercase tracking-wider">
                   Timestamp (UTC)
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-[#6D7C73] uppercase tracking-wider">
                   Event Type
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-[#6D7C73] uppercase tracking-wider">
                   Actor
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-[#6D7C73] uppercase tracking-wider">
                   Entity
                 </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-[#6D7C73] uppercase tracking-wider">
                   Hash / Prev Hash
                 </th>
-                <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
+                <th scope="col" className="px-4 py-3 text-center text-xs font-semibold text-[#6D7C73] uppercase tracking-wider w-12">
                   Payload
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200 text-sm">
+            <tbody className="bg-white divide-y divide-[#E3E9E2] text-sm">
               {loading && events.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto text-gray-400 mb-2" />
+                  <td colSpan={7} className="px-6 py-12 text-center text-[#6D7C73]">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto text-[#245344] mb-2" />
                     Loading cryptographic audit records...
                   </td>
                 </tr>
               ) : events.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                    <Search className="w-6 h-6 mx-auto text-gray-400 mb-2" />
+                  <td colSpan={7} className="px-6 py-12 text-center text-[#6D7C73]">
+                    <Search className="w-6 h-6 mx-auto text-[#6D7C73] mb-2" />
                     No audit events match the selected criteria.
                   </td>
                 </tr>
@@ -353,64 +353,64 @@ export const AuditTrailPage: React.FC = () => {
 
                   return (
                     <React.Fragment key={evt.id}>
-                      <tr className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 font-mono font-bold text-gray-900 text-xs">
+                      <tr className="hover:bg-[#F1F4EF]/50 transition-colors">
+                        <td className="px-4 py-3 font-mono font-bold text-[#1D2B27] text-xs">
                           #{evt.sequence_number}
                         </td>
-                        <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                        <td className="px-4 py-3 text-[#6D7C73] text-xs whitespace-nowrap font-mono">
                           {new Date(evt.created_at).toISOString().replace('T', ' ').slice(0, 23)}Z
                         </td>
                         <td className="px-4 py-3">
                           <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border ${
                               isFinancial
-                                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                ? 'bg-[#DCE9DF] text-[#245344] border-[#C5D9C9]'
                                 : isSecurity
                                 ? evt.event_type.includes('failure')
-                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                  : 'bg-purple-50 text-purple-700 border border-purple-200'
-                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  ? 'bg-[#F5E9DF] text-[#9B5540] border-[#E8D5C4]'
+                                  : 'bg-[#E9E2EF] text-[#553C7B] border-[#D5C7DE]'
+                                : 'bg-[#F1F4EF] text-[#1D2B27] border-[#E3E9E2]'
                             }`}
                           >
                             {evt.event_type}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-xs text-gray-700">
+                        <td className="px-4 py-3 text-xs text-[#1D2B27]">
                           {evt.actor_role ? (
-                            <span className="font-medium text-gray-900">
+                            <span className="font-medium text-[#1D2B27]">
                               {evt.actor_role}
                             </span>
                           ) : (
-                            <span className="text-gray-400 italic">system / unauth</span>
+                            <span className="text-[#6D7C73] italic">system / unauth</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-xs font-mono text-gray-600">
-                          <span className="text-gray-400">{evt.entity_type}:</span> {evt.entity_id}
+                        <td className="px-4 py-3 text-xs font-mono text-[#6D7C73]">
+                          <span className="text-[#6D7C73]">{evt.entity_type}:</span> {evt.entity_id}
                         </td>
                         <td className="px-4 py-3 text-xs font-mono space-y-0.5">
                           <div className="flex items-center gap-1">
-                            <span className="text-gray-400 text-[10px]">curr:</span>
-                            <span className="text-gray-900 font-semibold">{evt.current_hash.slice(0, 10)}...</span>
+                            <span className="text-[#6D7C73] text-[10px]">curr:</span>
+                            <span className="text-[#1D2B27] font-semibold">{evt.current_hash.slice(0, 10)}...</span>
                             <button
                               onClick={() => copyToClipboard(evt.current_hash, `curr-${evt.id}`)}
-                              className="text-gray-400 hover:text-gray-600"
+                              className="text-[#6D7C73] hover:text-[#1D2B27] cursor-pointer"
                             >
                               {copiedHash === `curr-${evt.id}` ? (
-                                <Check className="w-3 h-3 text-emerald-600" />
+                                <Check className="w-3 h-3 text-[#245344]" />
                               ) : (
                                 <Copy className="w-3 h-3" />
                               )}
                             </button>
                           </div>
                           <div className="flex items-center gap-1">
-                            <span className="text-gray-400 text-[10px]">prev:</span>
-                            <span className="text-gray-500">{evt.prev_hash.slice(0, 10)}...</span>
+                            <span className="text-[#6D7C73] text-[10px]">prev:</span>
+                            <span className="text-[#6D7C73]">{evt.prev_hash.slice(0, 10)}...</span>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-center">
                           <button
                             onClick={() => setExpandedRow(isExpanded ? null : evt.id)}
-                            className="p-1 text-gray-500 hover:text-gray-700 rounded transition-colors"
+                            className="p-1 text-[#6D7C73] hover:text-[#1D2B27] rounded transition cursor-pointer"
                             title="Toggle payload"
                           >
                             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -420,18 +420,18 @@ export const AuditTrailPage: React.FC = () => {
 
                       {/* Expanded Canonical Payload View */}
                       {isExpanded && (
-                        <tr className="bg-slate-50/70">
-                          <td colSpan={7} className="px-6 py-4 border-t border-b border-gray-200">
+                        <tr className="bg-[#F1F4EF]/50">
+                          <td colSpan={7} className="px-6 py-4 border-t border-b border-[#E3E9E2]">
                             <div className="space-y-3">
-                              <div className="flex items-center justify-between text-xs text-gray-500">
-                                <span className="font-semibold text-gray-700">Event ID: {evt.id}</span>
-                                <span>Full Hash: <code className="font-mono">{evt.current_hash}</code></span>
+                              <div className="flex items-center justify-between text-xs text-[#6D7C73]">
+                                <span className="font-semibold text-[#1D2B27]">Event ID: {evt.id}</span>
+                                <span>Full Hash: <code className="font-mono text-[#1D2B27]">{evt.current_hash}</code></span>
                               </div>
                               <div>
-                                <span className="text-xs font-semibold text-gray-700 block mb-1">
+                                <span className="text-xs font-semibold text-[#1D2B27] block mb-1">
                                   Canonical JSON Payload:
                                 </span>
-                                <pre className="bg-slate-900 text-slate-100 p-3 rounded-lg text-xs font-mono overflow-x-auto">
+                                <pre className="bg-[#1D2B27] text-white p-3 rounded-xl text-xs font-mono overflow-x-auto border border-[#E3E9E2]">
                                   {JSON.stringify(evt.payload, null, 2)}
                                 </pre>
                               </div>
@@ -449,22 +449,22 @@ export const AuditTrailPage: React.FC = () => {
 
         {/* Pagination Footer */}
         {totalEvents > pageSize && (
-          <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-            <div className="text-xs text-gray-600">
+          <div className="bg-[#F1F4EF] px-4 py-3 flex items-center justify-between border-t border-[#E3E9E2] sm:px-6">
+            <div className="text-xs text-[#6D7C73]">
               Page {page + 1} of {Math.ceil(totalEvents / pageSize)}
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(p - 1, 0))}
                 disabled={page === 0}
-                className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                className="px-3.5 py-1.5 text-xs font-semibold text-[#1D2B27] bg-white border border-[#E3E9E2] rounded-xl hover:bg-[#F1F4EF] disabled:opacity-50 transition cursor-pointer"
               >
                 Previous
               </button>
               <button
                 onClick={() => setPage((p) => p + 1)}
                 disabled={(page + 1) * pageSize >= totalEvents}
-                className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                className="px-3.5 py-1.5 text-xs font-semibold text-[#1D2B27] bg-white border border-[#E3E9E2] rounded-xl hover:bg-[#F1F4EF] disabled:opacity-50 transition cursor-pointer"
               >
                 Next
               </button>

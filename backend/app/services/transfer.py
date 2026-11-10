@@ -105,11 +105,11 @@ class TransferService:
                 return cached_data, True
 
         try:
-            # RBAC Check: Auditors cannot perform financial operations
-            if current_user.role == UserRole.AUDITOR:
+            # RBAC Check: Only Account Holders can perform deposits
+            if current_user.role != UserRole.ACCOUNT_HOLDER:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Auditors are not permitted to perform financial operations",
+                    detail="Only Account Holders are permitted to perform deposits",
                 )
 
             # Retrieve and lock customer account
@@ -123,12 +123,11 @@ class TransferService:
                 )
 
             # Anti-Enumeration: Account Holder can only deposit to their own accounts
-            if current_user.role == UserRole.ACCOUNT_HOLDER:
-                if customer_acc.owner_id != current_user.id:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Account not found",
-                    )
+            if customer_acc.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Account not found",
+                )
 
             # Account type check: Customer accounts only
             if customer_acc.account_type not in (
@@ -308,11 +307,11 @@ class TransferService:
                 return cached_data, True
 
         try:
-            # RBAC Check: Auditors cannot perform financial operations
-            if current_user.role == UserRole.AUDITOR:
+            # RBAC Check: Only Account Holders can perform withdrawals
+            if current_user.role != UserRole.ACCOUNT_HOLDER:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Auditors are not permitted to perform financial operations",
+                    detail="Only Account Holders are permitted to perform withdrawals",
                 )
 
             # Retrieve and lock customer account
@@ -326,12 +325,11 @@ class TransferService:
                 )
 
             # Anti-Enumeration: Account Holder can only withdraw from their own accounts
-            if current_user.role == UserRole.ACCOUNT_HOLDER:
-                if customer_acc.owner_id != current_user.id:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Account not found",
-                    )
+            if customer_acc.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Account not found",
+                )
 
             # Account type check: Customer accounts only
             if customer_acc.account_type not in (
@@ -532,11 +530,11 @@ class TransferService:
                 return cached_data, True
 
         try:
-            # RBAC Check: Auditors cannot perform financial operations
-            if current_user.role == UserRole.AUDITOR:
+            # RBAC Check: Only Account Holders are permitted to initiate customer-fund transfers
+            if current_user.role != UserRole.ACCOUNT_HOLDER:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Auditors are not permitted to perform financial operations",
+                    detail="Only Account Holders are permitted to initiate transfers",
                 )
 
             # Deadlock-free deterministic row locking ordered by UUID

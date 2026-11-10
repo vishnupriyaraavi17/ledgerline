@@ -29,9 +29,9 @@ type TabType = 'transfer' | 'deposit' | 'withdraw' | 'journal';
 export const TransfersPage: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
 
-  // Active navigation tab
+  // Active navigation tab - Account holders default to transfer, Admin and Auditor default to journal
   const [activeTab, setActiveTab] = useState<TabType>(
-    user?.role === 'auditor' ? 'journal' : 'transfer'
+    user?.role === 'account_holder' ? 'transfer' : 'journal'
   );
 
   // Loaded data
@@ -183,9 +183,9 @@ export const TransfersPage: React.FC = () => {
     }
   }, [isAuthenticated, user?.role]);
 
-  // Adjust default tab when user is auditor
+  // Non-account-holders (Admin and Auditor) are restricted to transaction journal
   useEffect(() => {
-    if (user?.role === 'auditor') {
+    if (user?.role && user.role !== 'account_holder') {
       setActiveTab('journal');
     }
   }, [user?.role]);
@@ -270,7 +270,7 @@ export const TransfersPage: React.FC = () => {
         setLastFailedAction(null);
       } else if (!err.response || err.code === 'ECONNABORTED' || err.message?.includes('Network Error') || err.message?.includes('timeout')) {
         // Network timeout / connection drop: RETAIN identical key for safe retry
-        setFormError('Network timeout or connection error. The active idempotency key has been retained. You can safely retry without duplicate posting.');
+        setFormError('Network timeout or connection error. Your transaction token has been safely retained. You can safely retry without duplicate posting.');
         setCanRetry(true);
         setLastFailedAction(() => () => handleTransfer());
       } else {
@@ -333,7 +333,7 @@ export const TransfersPage: React.FC = () => {
         setLastFailedAction(null);
       } else if (!err.response || err.code === 'ECONNABORTED' || err.message?.includes('Network Error') || err.message?.includes('timeout')) {
         // Network timeout / connection drop: RETAIN identical key for safe retry
-        setFormError('Network timeout or connection error. The active idempotency key has been retained. You can safely retry without duplicate posting.');
+        setFormError('Network timeout or connection error. Your transaction token has been safely retained. You can safely retry without duplicate posting.');
         setCanRetry(true);
         setLastFailedAction(() => () => handleDeposit());
       } else {
@@ -402,7 +402,7 @@ export const TransfersPage: React.FC = () => {
         setLastFailedAction(null);
       } else if (!err.response || err.code === 'ECONNABORTED' || err.message?.includes('Network Error') || err.message?.includes('timeout')) {
         // Network timeout / connection drop: RETAIN identical key for safe retry
-        setFormError('Network timeout or connection error. The active idempotency key has been retained. You can safely retry without duplicate posting.');
+        setFormError('Network timeout or connection error. Your transaction token has been safely retained. You can safely retry without duplicate posting.');
         setCanRetry(true);
         setLastFailedAction(() => () => handleWithdrawal());
       } else {
@@ -433,24 +433,31 @@ export const TransfersPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       {/* Top Banner */}
-      <div className="bg-white border border-finance-border rounded-xl p-6 shadow-xs">
+      <div className="bg-white border border-[#E3E9E2] rounded-2xl p-6 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600">
-                <ArrowLeftRight className="w-6 h-6" />
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-[#245344] flex items-center justify-center text-white shadow-xs">
+                <ArrowLeftRight className="w-5 h-5 text-[#DCE9DF]" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="text-2xl font-bold tracking-tight text-slate-900">Financial Operations</h1>
-                  <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    Task 04 Active
-                  </span>
+                  <h1 className="text-xl font-serif font-bold tracking-tight text-[#1D2B27]">
+                    {user?.role === 'account_holder'
+                      ? 'Transfers'
+                      : user?.role === 'admin'
+                      ? 'Financial Operations Oversight'
+                      : 'Transaction History'}
+                  </h1>
                 </div>
-                <p className="text-sm text-slate-500">
-                  Double-entry money movement with deterministic concurrency, exact Decimal math, and zero-sum balance triggers.
+                <p className="text-xs text-[#6D7C73] mt-0.5">
+                  {user?.role === 'account_holder'
+                    ? 'Transfer money securely between your accounts.'
+                    : user?.role === 'admin'
+                    ? 'Administrative supervision and double-entry transaction journal.'
+                    : 'Auditor read-only inspection of the double-entry transaction journal.'}
                 </p>
               </div>
             </div>
@@ -460,36 +467,46 @@ export const TransfersPage: React.FC = () => {
             <button
               onClick={handleRefresh}
               disabled={refreshing || loading}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#1D2B27] bg-[#F1F4EF] hover:bg-[#E3E9E2] border border-[#E3E9E2] rounded-xl transition disabled:opacity-50 cursor-pointer shadow-2xs"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-indigo-600' : ''}`} />
-              <span>Refresh Ledger</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-[#245344]' : ''}`} />
+              <span>Refresh</span>
             </button>
           </div>
         </div>
 
         {/* Global Error Banner */}
         {globalError && (
-          <div className="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-center gap-2 text-rose-700 text-sm">
-            <AlertCircle className="w-4 h-4 shrink-0" />
+          <div className="mt-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-rose-800 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
             <span>{globalError}</span>
+          </div>
+        )}
+
+        {/* Admin Role Alert */}
+        {user?.role === 'admin' && (
+          <div className="mt-4 p-3.5 bg-[#E9E2EF]/70 border border-[#D5C7DE] rounded-xl flex items-center gap-2.5 text-[#553C7B] text-xs">
+            <Shield className="w-4 h-4 text-[#553C7B] shrink-0" />
+            <span>
+              <strong>Administrative Financial Oversight:</strong> Customer transfers can only be initiated by Account Holders. You have supervisory access to inspect all transaction records across the system.
+            </span>
           </div>
         )}
 
         {/* Auditor Role Alert */}
         {user?.role === 'auditor' && (
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-xs sm:text-sm">
-            <Shield className="w-4 h-4 text-amber-600 shrink-0" />
+          <div className="mt-4 p-3.5 bg-[#DCE9DF]/50 border border-[#C5D9C9] rounded-xl flex items-center gap-2.5 text-[#245344] text-xs">
+            <Shield className="w-4 h-4 text-[#245344] shrink-0" />
             <span>
-              <strong>Auditor Read-Only Mode:</strong> Financial postings (transfers, deposits, withdrawals) are restricted by RBAC. You have full read-only access to inspect the double-entry transaction journal.
+              <strong>Auditor Read-Only Mode:</strong> Postings are restricted by RBAC. You have full read-only access to inspect the double-entry transaction journal.
             </span>
           </div>
         )}
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex border-b border-finance-border bg-white rounded-t-xl px-4 pt-2 gap-2 shadow-xs">
-        {user?.role !== 'auditor' && (
+      <div className="flex border-b border-[#E3E9E2] bg-white rounded-t-2xl px-6 pt-3 gap-3 shadow-xs">
+        {user?.role === 'account_holder' && (
           <>
             <button
               onClick={() => {
@@ -497,14 +514,14 @@ export const TransfersPage: React.FC = () => {
                 setFormError(null);
                 setSuccessMessage(null);
               }}
-              className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition ${
+              className={`pb-3 px-3 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition cursor-pointer ${
                 activeTab === 'transfer'
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-[#245344] text-[#245344]'
+                  : 'border-transparent text-[#6D7C73] hover:text-[#1D2B27]'
               }`}
             >
               <ArrowLeftRight className="w-4 h-4" />
-              <span>Internal Transfer</span>
+              <span>Transfer Funds</span>
             </button>
 
             <button
@@ -513,14 +530,14 @@ export const TransfersPage: React.FC = () => {
                 setFormError(null);
                 setSuccessMessage(null);
               }}
-              className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition ${
+              className={`pb-3 px-3 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition cursor-pointer ${
                 activeTab === 'deposit'
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-[#245344] text-[#245344]'
+                  : 'border-transparent text-[#6D7C73] hover:text-[#1D2B27]'
               }`}
             >
-              <ArrowDownLeft className="w-4 h-4 text-emerald-600" />
-              <span>Simulated Deposit</span>
+              <ArrowDownLeft className="w-4 h-4" />
+              <span>Add Money (Demo)</span>
             </button>
 
             <button
@@ -529,14 +546,14 @@ export const TransfersPage: React.FC = () => {
                 setFormError(null);
                 setSuccessMessage(null);
               }}
-              className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition ${
+              className={`pb-3 px-3 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition cursor-pointer ${
                 activeTab === 'withdraw'
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-[#245344] text-[#245344]'
+                  : 'border-transparent text-[#6D7C73] hover:text-[#1D2B27]'
               }`}
             >
-              <ArrowUpRight className="w-4 h-4 text-amber-600" />
-              <span>Simulated Withdrawal</span>
+              <ArrowUpRight className="w-4 h-4" />
+              <span>Withdraw Money (Demo)</span>
             </button>
           </>
         )}
@@ -547,17 +564,14 @@ export const TransfersPage: React.FC = () => {
             setFormError(null);
             setSuccessMessage(null);
           }}
-          className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition ${
+          className={`pb-3 px-3 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition cursor-pointer ${
             activeTab === 'journal'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-[#245344] text-[#245344]'
+              : 'border-transparent text-[#6D7C73] hover:text-[#1D2B27]'
           }`}
         >
           <BookOpen className="w-4 h-4" />
-          <span>Transaction Journal</span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">
-            {totalTransactions}
-          </span>
+          <span>Transaction History ({totalTransactions})</span>
         </button>
       </div>
 
@@ -633,44 +647,27 @@ export const TransfersPage: React.FC = () => {
       )}
 
       {/* Main Tab Panels */}
-      <div className="bg-white border border-finance-border rounded-xl p-6 shadow-xs">
+      <div className="bg-white border border-[#E3E9E2] rounded-2xl p-6 shadow-xs">
         {/* 1. Internal Transfer Form */}
         {activeTab === 'transfer' && (
           <form onSubmit={handleTransfer} className="max-w-2xl space-y-5">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Peer-to-Peer Inter-Account Transfer</h2>
-              <p className="text-xs text-slate-500">
-                Atomically moves funds between two distinct customer accounts with mathematical money conservation (&Delta; Total Funds = 0.00).
+              <h2 className="text-base font-serif font-bold text-[#1D2B27]">Transfer Between Your Accounts</h2>
+              <p className="text-xs text-[#6D7C73] mt-1">
+                Move money between your eligible accounts. Your balances update after a successful transfer.
               </p>
-            </div>
-
-            {/* Active Idempotency Key Audit Badge */}
-            <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-600">
-              <div className="flex items-center gap-2">
-                <Shield className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                <span className="font-medium text-slate-700 font-sans">Active Idempotency Key:</span>
-                <span className="text-indigo-600 font-semibold">{transferKey.slice(0, 8)}...{transferKey.slice(-4)}</span>
-              </div>
-              <button
-                type="button"
-                onClick={generateNewKeyForActiveTab}
-                className="text-[11px] text-slate-500 hover:text-indigo-600 underline font-sans"
-                title="Generate fresh UUID key"
-              >
-                Generate Fresh Key
-              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Sourcing Account */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Source Account (Debited) *
+                <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                  From Account *
                 </label>
                 <select
                   value={transferForm.source_id}
                   onChange={(e) => updateTransferField('source_id', e.target.value)}
-                  className="w-full text-xs font-medium border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-xs font-medium border border-[#E3E9E2] rounded-xl p-2.5 bg-white text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
                   required
                 >
                   {customerAccounts.map((acc) => (
@@ -680,8 +677,8 @@ export const TransfersPage: React.FC = () => {
                   ))}
                 </select>
                 {transferForm.source_id && (
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    Available: <span className="font-semibold font-mono text-slate-800">
+                  <div className="mt-1 text-[11px] text-[#6D7C73]">
+                    Available: <span className="font-semibold font-mono text-[#1D2B27]">
                       {formatCurrency(findAccount(transferForm.source_id)?.balance || 0)}
                     </span>
                   </div>
@@ -690,13 +687,13 @@ export const TransfersPage: React.FC = () => {
 
               {/* Destination Account */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Destination Account (Credited) *
+                <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                  To Account *
                 </label>
                 <select
                   value={transferForm.destination_id}
                   onChange={(e) => updateTransferField('destination_id', e.target.value)}
-                  className="w-full text-xs font-medium border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-xs font-medium border border-[#E3E9E2] rounded-xl p-2.5 bg-white text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
                   required
                 >
                   <option value="">-- Select Destination --</option>
@@ -718,11 +715,11 @@ export const TransfersPage: React.FC = () => {
 
             {/* Transfer Amount */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Amount in INR (₹) *
+              <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                Amount (₹) *
               </label>
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-mono text-sm">₹</span>
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-[#6D7C73] font-mono text-sm">₹</span>
                 <input
                   type="number"
                   step="0.01"
@@ -730,7 +727,7 @@ export const TransfersPage: React.FC = () => {
                   placeholder="0.00"
                   value={transferForm.amount}
                   onChange={(e) => updateTransferField('amount', e.target.value)}
-                  className="w-full pl-8 text-sm font-mono border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
+                  className="w-full pl-8 text-sm font-mono border border-[#E3E9E2] rounded-xl p-2.5 text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
                   required
                 />
               </div>
@@ -738,16 +735,16 @@ export const TransfersPage: React.FC = () => {
 
             {/* Description */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Transaction Description (Optional Memo)
+              <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                Description (Optional)
               </label>
               <input
                 type="text"
                 maxLength={255}
-                placeholder="e.g. Invoice payment, personal settlement"
+                placeholder="e.g. Invoice payment, savings transfer"
                 value={transferForm.description}
                 onChange={(e) => updateTransferField('description', e.target.value)}
-                className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
+                className="w-full text-xs border border-[#E3E9E2] rounded-xl p-2.5 text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
               />
             </div>
 
@@ -755,17 +752,17 @@ export const TransfersPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={formSubmitting || !transferForm.source_id || !transferForm.destination_id}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition disabled:opacity-50 shadow-xs"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#245344] text-white text-xs font-semibold hover:bg-[#1B3F34] transition disabled:opacity-50 shadow-xs cursor-pointer"
               >
                 {formSubmitting ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Executing Double-Entry Posting...</span>
+                    <span>Processing Transfer...</span>
                   </>
                 ) : (
                   <>
                     <ArrowLeftRight className="w-3.5 h-3.5" />
-                    <span>Post Atomic Transfer</span>
+                    <span>Send Money</span>
                   </>
                 )}
               </button>
@@ -777,45 +774,28 @@ export const TransfersPage: React.FC = () => {
         {activeTab === 'deposit' && (
           <form onSubmit={handleDeposit} className="max-w-2xl space-y-5">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Simulated External Deposit</h2>
-              <p className="text-xs text-slate-500">
-                Injects simulated funds into a customer account counterbalanced against platform clearing transit (<span className="font-mono font-semibold">ACC-SYSTEM02</span>).
+              <h2 className="text-base font-serif font-bold text-[#1D2B27]">Add Money (Demo)</h2>
+              <p className="text-xs text-[#6D7C73] mt-1">
+                Deposit virtual demo funds into your account for testing purposes.
               </p>
             </div>
 
-            {/* Active Idempotency Key Audit Badge */}
-            <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-600">
-              <div className="flex items-center gap-2">
-                <Shield className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                <span className="font-medium text-slate-700 font-sans">Active Idempotency Key:</span>
-                <span className="text-emerald-600 font-semibold">{depositKey.slice(0, 8)}...{depositKey.slice(-4)}</span>
-              </div>
-              <button
-                type="button"
-                onClick={generateNewKeyForActiveTab}
-                className="text-[11px] text-slate-500 hover:text-emerald-600 underline font-sans"
-                title="Generate fresh UUID key"
-              >
-                Generate Fresh Key
-              </button>
-            </div>
-
-            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-900 flex items-start gap-2">
-              <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-              <span>
-                <strong>Accounting Flow:</strong> DEBIT ACC-SYSTEM02 (Transit Asset +₹A) &rarr; CREDIT Customer Account (Liability +₹A). Preserves the double-entry equation.
+            <div className="p-3.5 bg-[#DCE9DF]/40 border border-[#C5D9C9] rounded-xl text-xs flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-[#245344] shrink-0 mt-0.5" />
+              <span className="text-[#245344] font-medium leading-relaxed">
+                This is a demonstration feature using virtual funds. No real monetary transactions take place.
               </span>
             </div>
 
             {/* Target Account */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Target Account (Credited) *
+              <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                Deposit To *
               </label>
               <select
                 value={depositForm.account_id}
                 onChange={(e) => updateDepositField('account_id', e.target.value)}
-                className="w-full text-xs font-medium border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
+                className="w-full text-xs font-medium border border-[#E3E9E2] rounded-xl p-2.5 bg-white text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
                 required
               >
                 {customerAccounts.map((acc) => (
@@ -828,11 +808,11 @@ export const TransfersPage: React.FC = () => {
 
             {/* Deposit Amount */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Deposit Amount in INR (₹) *
+              <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                Amount (₹) *
               </label>
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-mono text-sm">₹</span>
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-[#6D7C73] font-mono text-sm">₹</span>
                 <input
                   type="number"
                   step="0.01"
@@ -840,7 +820,7 @@ export const TransfersPage: React.FC = () => {
                   placeholder="0.00"
                   value={depositForm.amount}
                   onChange={(e) => updateDepositField('amount', e.target.value)}
-                  className="w-full pl-8 text-sm font-mono border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
+                  className="w-full pl-8 text-sm font-mono border border-[#E3E9E2] rounded-xl p-2.5 text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
                   required
                 />
               </div>
@@ -848,16 +828,16 @@ export const TransfersPage: React.FC = () => {
 
             {/* Description */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Deposit Memo (Optional)
+              <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                Description (Optional)
               </label>
               <input
                 type="text"
                 maxLength={255}
-                placeholder="e.g. Initial funding, wire settlement"
+                placeholder="e.g. Initial demo funding, test deposit"
                 value={depositForm.description}
                 onChange={(e) => updateDepositField('description', e.target.value)}
-                className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
+                className="w-full text-xs border border-[#E3E9E2] rounded-xl p-2.5 text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
               />
             </div>
 
@@ -865,17 +845,17 @@ export const TransfersPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={formSubmitting || !depositForm.account_id}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition disabled:opacity-50 shadow-xs"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#245344] text-white text-xs font-semibold hover:bg-[#1B3F34] transition disabled:opacity-50 shadow-xs cursor-pointer"
               >
                 {formSubmitting ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Posting Deposit...</span>
+                    <span>Adding Demo Funds...</span>
                   </>
                 ) : (
                   <>
                     <ArrowDownLeft className="w-3.5 h-3.5" />
-                    <span>Post Deposit</span>
+                    <span>Add Money (Demo)</span>
                   </>
                 )}
               </button>
@@ -887,45 +867,28 @@ export const TransfersPage: React.FC = () => {
         {activeTab === 'withdraw' && (
           <form onSubmit={handleWithdrawal} className="max-w-2xl space-y-5">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Simulated External Withdrawal</h2>
-              <p className="text-xs text-slate-500">
-                Disburses funds from a customer account back to platform clearing transit (<span className="font-mono font-semibold">ACC-SYSTEM02</span>), strictly guarded against overdrafts.
+              <h2 className="text-base font-serif font-bold text-[#1D2B27]">Withdraw Money (Demo)</h2>
+              <p className="text-xs text-[#6D7C73] mt-1">
+                Withdraw virtual demo funds from your account. Overdrafts are not permitted.
               </p>
             </div>
 
-            {/* Active Idempotency Key Audit Badge */}
-            <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-600">
-              <div className="flex items-center gap-2">
-                <Shield className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="font-medium text-slate-700 font-sans">Active Idempotency Key:</span>
-                <span className="text-amber-600 font-semibold">{withdrawKey.slice(0, 8)}...{withdrawKey.slice(-4)}</span>
-              </div>
-              <button
-                type="button"
-                onClick={generateNewKeyForActiveTab}
-                className="text-[11px] text-slate-500 hover:text-amber-600 underline font-sans"
-                title="Generate fresh UUID key"
-              >
-                Generate Fresh Key
-              </button>
-            </div>
-
-            <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-900 flex items-start gap-2">
-              <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <span>
-                <strong>Accounting Flow:</strong> DEBIT Customer Account (Liability -₹A) &rarr; CREDIT ACC-SYSTEM02 (Transit Asset -₹A). Overdrafts are rejected with zero balance change.
+            <div className="p-3.5 bg-[#F5E9DF]/50 border border-[#E8D5C4] rounded-xl text-xs flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-[#9B5540] shrink-0 mt-0.5" />
+              <span className="text-[#9B5540] font-medium leading-relaxed">
+                This is a demonstration feature using virtual funds. No real monetary transactions take place.
               </span>
             </div>
 
             {/* Source Account */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Source Account (Debited) *
+              <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                Withdraw From *
               </label>
               <select
                 value={withdrawForm.account_id}
                 onChange={(e) => updateWithdrawField('account_id', e.target.value)}
-                className="w-full text-xs font-medium border border-slate-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
+                className="w-full text-xs font-medium border border-[#E3E9E2] rounded-xl p-2.5 bg-white text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
                 required
               >
                 {customerAccounts.map((acc) => (
@@ -938,11 +901,11 @@ export const TransfersPage: React.FC = () => {
 
             {/* Withdrawal Amount */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Withdrawal Amount in INR (₹) *
+              <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                Amount (₹) *
               </label>
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-mono text-sm">₹</span>
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-[#6D7C73] font-mono text-sm">₹</span>
                 <input
                   type="number"
                   step="0.01"
@@ -950,7 +913,7 @@ export const TransfersPage: React.FC = () => {
                   placeholder="0.00"
                   value={withdrawForm.amount}
                   onChange={(e) => updateWithdrawField('amount', e.target.value)}
-                  className="w-full pl-8 text-sm font-mono border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
+                  className="w-full pl-8 text-sm font-mono border border-[#E3E9E2] rounded-xl p-2.5 text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
                   required
                 />
               </div>
@@ -958,16 +921,16 @@ export const TransfersPage: React.FC = () => {
 
             {/* Description */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Withdrawal Memo (Optional)
+              <label className="block text-xs font-semibold text-[#1D2B27] mb-1.5">
+                Description (Optional)
               </label>
               <input
                 type="text"
                 maxLength={255}
-                placeholder="e.g. ATM withdrawal, vendor payout"
+                placeholder="e.g. Test ATM payout, vendor demo withdrawal"
                 value={withdrawForm.description}
                 onChange={(e) => updateWithdrawField('description', e.target.value)}
-                className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"
+                className="w-full text-xs border border-[#E3E9E2] rounded-xl p-2.5 text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
               />
             </div>
 
@@ -975,17 +938,17 @@ export const TransfersPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={formSubmitting || !withdrawForm.account_id}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition disabled:opacity-50 shadow-xs"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#245344] text-white text-xs font-semibold hover:bg-[#1B3F34] transition disabled:opacity-50 shadow-xs cursor-pointer"
               >
                 {formSubmitting ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Posting Withdrawal...</span>
+                    <span>Processing Withdrawal...</span>
                   </>
                 ) : (
                   <>
                     <ArrowUpRight className="w-3.5 h-3.5" />
-                    <span>Disburse Withdrawal</span>
+                    <span>Withdraw Money (Demo)</span>
                   </>
                 )}
               </button>
@@ -993,85 +956,85 @@ export const TransfersPage: React.FC = () => {
           </form>
         )}
 
-        {/* 4. Transaction Journal */}
+        {/* 4. Transaction History */}
         {activeTab === 'journal' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-base font-bold text-slate-900">Double-Entry Transaction Journal</h2>
-                <p className="text-xs text-slate-500">
-                  Chronological, immutable ledger of all debits and credits recorded under zero-sum balance constraints.
+                <h2 className="text-base font-serif font-bold text-[#1D2B27]">Transaction History</h2>
+                <p className="text-xs text-[#6D7C73] mt-0.5">
+                  A complete record of your completed transactions.
                 </p>
               </div>
-              <span className="text-xs text-slate-400 font-mono">
+              <span className="text-xs text-[#6D7C73] font-mono">
                 Showing {transactions.length} of {totalTransactions}
               </span>
             </div>
 
             {loading ? (
-              <div className="py-12 text-center text-slate-400 text-sm">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
-                Loading ledger records...
+              <div className="py-12 text-center text-[#6D7C73] text-sm">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#245344]" />
+                Loading transaction records...
               </div>
             ) : transactions.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
-                <Wallet className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <div className="font-semibold text-slate-600">No transactions recorded yet</div>
-                <div className="text-xs text-slate-400">Perform a deposit or transfer to generate double-entry entries.</div>
+              <div className="py-12 text-center text-[#6D7C73] text-sm border-2 border-dashed border-[#E3E9E2] rounded-2xl">
+                <Wallet className="w-8 h-8 text-[#6D7C73] mx-auto mb-2" />
+                <div className="font-semibold text-[#1D2B27]">No transactions recorded yet</div>
+                <div className="text-xs text-[#6D7C73]">Perform a transfer or add money to see activity here.</div>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+              <div className="divide-y divide-[#E3E9E2] border border-[#E3E9E2] rounded-2xl overflow-hidden">
                 {transactions.map((txn) => (
-                  <div key={txn.id} className="p-4 hover:bg-slate-50 transition">
+                  <div key={txn.id} className="p-4 hover:bg-[#F1F4EF]/50 transition">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-slate-900 px-2 py-0.5 rounded bg-slate-100 border border-slate-200">
+                        <span className="font-mono text-xs font-bold text-[#1D2B27] px-2 py-0.5 rounded-lg bg-[#F1F4EF] border border-[#E3E9E2]">
                           {txn.reference}
                         </span>
                         <span
-                          className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded ${
+                          className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${
                             txn.transaction_type === 'transfer'
-                              ? 'bg-indigo-100 text-indigo-800'
-                              : 'bg-emerald-100 text-emerald-800'
+                              ? 'bg-[#DCE9DF] text-[#245344] border-[#C5D9C9]'
+                              : 'bg-[#F5E9DF] text-[#9B5540] border-[#E8D5C4]'
                           }`}
                         >
                           {txn.transaction_type}
                         </span>
-                        <span className="text-xs text-slate-700 font-medium">{txn.description}</span>
+                        <span className="text-xs text-[#1D2B27] font-medium">{txn.description}</span>
                       </div>
-                      <div className="flex items-center gap-1.5 text-slate-400 text-xs">
+                      <div className="flex items-center gap-1.5 text-[#6D7C73] text-xs">
                         <Clock className="w-3.5 h-3.5" />
                         <span>{new Date(txn.posted_at).toLocaleString('en-IN')}</span>
                       </div>
                     </div>
 
-                    {/* Double-Entry Legs Subtable */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-100">
+                    {/* Legs Subtable */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2 pt-2 border-t border-[#E3E9E2]">
                       {txn.entries.map((entry) => {
                         const targetAcc = accounts.find((a) => a.id === entry.account_id);
                         const isDebit = entry.entry_type === 'debit';
                         return (
                           <div
                             key={entry.id}
-                            className={`flex items-center justify-between p-2 rounded-lg text-xs font-mono border ${
+                            className={`flex items-center justify-between p-2 rounded-xl text-xs font-mono border ${
                               isDebit
-                                ? 'bg-indigo-50/50 border-indigo-100 text-indigo-900'
-                                : 'bg-emerald-50/50 border-emerald-100 text-emerald-900'
+                                ? 'bg-[#F5E9DF]/30 border-[#E8D5C4] text-[#9B5540]'
+                                : 'bg-[#DCE9DF]/30 border-[#C5D9C9] text-[#245344]'
                             }`}
                           >
                             <div className="flex items-center gap-2">
                               <span
-                                className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                                  isDebit ? 'bg-indigo-600 text-white' : 'bg-emerald-600 text-white'
+                                className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                                  isDebit ? 'bg-[#9B5540] text-white' : 'bg-[#245344] text-white'
                                 }`}
                               >
-                                {entry.entry_type}
+                                {isDebit ? 'Money Out' : 'Money In'}
                               </span>
-                              <span className="font-semibold">
+                              <span className="font-semibold text-[#1D2B27]">
                                 {targetAcc ? targetAcc.account_number : entry.account_id.slice(0, 8) + '...'}
                               </span>
                               {targetAcc && (
-                                <span className="text-[11px] text-slate-500 font-sans truncate max-w-[120px]">
+                                <span className="text-[11px] text-[#6D7C73] font-sans truncate max-w-[120px]">
                                   ({targetAcc.name})
                                 </span>
                               )}

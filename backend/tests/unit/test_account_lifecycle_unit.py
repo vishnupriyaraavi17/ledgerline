@@ -152,3 +152,55 @@ def test_closed_account_reopening_rejected(monkeypatch):
         account_service.update_account_status(db, admin, account.id, AccountStatus.ACTIVE)
     assert exc_info.value.status_code == 400
     assert "Closed accounts cannot be reopened" in exc_info.value.detail
+
+
+def test_system_account_freeze_or_close_rejected(monkeypatch):
+    db = MagicMock()
+    admin = make_test_user(UserRole.ADMIN)
+
+    # Test with system account number ACC-SYSTEM01
+    sys_acc_1 = Account(
+        id=uuid.uuid4(),
+        account_number="ACC-SYSTEM01",
+        owner_id=None,
+        name="System Reserve",
+        account_type=AccountType.SYSTEM_RESERVE,
+        currency="INR",
+        balance=Decimal("0.00"),
+        status=AccountStatus.ACTIVE,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.account.account_repository.get_by_id",
+        lambda _db, _id: sys_acc_1,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        account_service.update_account_status(db, admin, sys_acc_1.id, AccountStatus.FROZEN)
+    assert exc_info.value.status_code == 400
+    assert "System accounts cannot be frozen or closed" in exc_info.value.detail
+
+    with pytest.raises(HTTPException) as exc_info:
+        account_service.update_account_status(db, admin, sys_acc_1.id, AccountStatus.CLOSED)
+    assert exc_info.value.status_code == 400
+    assert "System accounts cannot be frozen or closed" in exc_info.value.detail
+
+    # Test with system account number ACC-SYSTEM02
+    sys_acc_2 = Account(
+        id=uuid.uuid4(),
+        account_number="ACC-SYSTEM02",
+        owner_id=None,
+        name="Internal Clearing",
+        account_type=AccountType.INTERNAL_CLEARING,
+        currency="INR",
+        balance=Decimal("0.00"),
+        status=AccountStatus.ACTIVE,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.account.account_repository.get_by_id",
+        lambda _db, _id: sys_acc_2,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        account_service.update_account_status(db, admin, sys_acc_2.id, AccountStatus.FROZEN)
+    assert exc_info.value.status_code == 400
+    assert "System accounts cannot be frozen or closed" in exc_info.value.detail

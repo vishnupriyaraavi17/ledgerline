@@ -55,15 +55,14 @@ def validate_idempotency_key(
         "Deposits simulated funds in INR into a customer checking or savings account. "
         "Creates a balanced double-entry settlement transaction: "
         "DEBIT ACC-SYSTEM02 (Internal Clearing), CREDIT Customer Account. "
-        "Account Holders can only deposit into accounts they own. "
-        "Administrators can deposit into any customer account. "
-        "Auditors are rejected with HTTP 403 Forbidden. "
+        "Only Account Holders can deposit into accounts they own. "
+        "Administrators and Auditors are rejected with HTTP 403 Forbidden. "
         "Guarded by database-backed idempotency."
     ),
     responses={
         201: {"description": "Deposit successful.", "model": TransactionResponse},
         400: {"description": "Bad Request: Account not active, invalid account type, or missing/invalid Idempotency-Key."},
-        403: {"description": "Forbidden: Auditors cannot perform deposits."},
+        403: {"description": "Forbidden: Administrators and Auditors cannot perform deposits."},
         404: {"description": "Not Found: Account does not exist or user does not own it."},
         409: {"description": "Conflict: Idempotency key previously used with different parameters."},
     },
@@ -93,14 +92,13 @@ def deposit(
         "Creates a balanced double-entry settlement transaction: "
         "DEBIT Customer Account, CREDIT ACC-SYSTEM02 (Internal Clearing). "
         "Guarded by deterministic row locking, balance sufficiency check, and idempotency deduplication. "
-        "Account Holders can only withdraw from accounts they own. "
-        "Administrators can withdraw from any customer account. "
-        "Auditors are rejected with HTTP 403 Forbidden."
+        "Only Account Holders can withdraw from accounts they own. "
+        "Administrators and Auditors are rejected with HTTP 403 Forbidden."
     ),
     responses={
         201: {"description": "Withdrawal successful.", "model": TransactionResponse},
         400: {"description": "Bad Request: Insufficient funds, account not active, or missing/invalid Idempotency-Key."},
-        403: {"description": "Forbidden: Auditors cannot perform withdrawals."},
+        403: {"description": "Forbidden: Administrators and Auditors cannot perform withdrawals."},
         404: {"description": "Not Found: Account does not exist or user does not own it."},
         409: {"description": "Conflict: Idempotency key previously used with different parameters."},
     },
@@ -130,9 +128,8 @@ def withdraw(
         "Creates a balanced double-entry transfer transaction: "
         "DEBIT Source Account, CREDIT Destination Account. "
         "Guarded by deterministic row locking to prevent deadlocks and race conditions. "
-        "Account Holders can only transfer from accounts they own. "
-        "Administrators can transfer between any customer accounts. "
-        "Auditors are rejected with HTTP 403 Forbidden. "
+        "Only Account Holders can initiate transfers between accounts. "
+        "Administrators and Auditors are rejected with HTTP 403 Forbidden. "
         "Guarded by database-backed idempotency."
     ),
     responses={

@@ -72,6 +72,41 @@ def test_auditor_prohibited_from_financial_operations():
     assert exc_tr.value.status_code == 403
 
 
+def test_admin_prohibited_from_financial_mutations():
+    db = MagicMock()
+    admin = make_test_user(UserRole.ADMIN)
+
+    # Deposit
+    with pytest.raises(HTTPException) as exc_dep:
+        transfer_service.deposit(
+            db, admin, DepositRequest(account_id=uuid.uuid4(), amount=Decimal("100.00"))
+        )
+    assert exc_dep.value.status_code == 403
+    assert "Only Account Holders are permitted to perform deposits" in exc_dep.value.detail
+
+    # Withdraw
+    with pytest.raises(HTTPException) as exc_wd:
+        transfer_service.withdraw(
+            db, admin, WithdrawRequest(account_id=uuid.uuid4(), amount=Decimal("100.00"))
+        )
+    assert exc_wd.value.status_code == 403
+    assert "Only Account Holders are permitted to perform withdrawals" in exc_wd.value.detail
+
+    # Transfer
+    with pytest.raises(HTTPException) as exc_tr:
+        transfer_service.transfer(
+            db,
+            admin,
+            TransferRequest(
+                source_account_id=uuid.uuid4(),
+                destination_account_id=uuid.uuid4(),
+                amount=Decimal("100.00"),
+            ),
+        )
+    assert exc_tr.value.status_code == 403
+    assert "Only Account Holders are permitted to initiate transfers" in exc_tr.value.detail
+
+
 def test_deposit_anti_enumeration_non_owned_account():
     db = MagicMock()
     account_holder = make_test_user(UserRole.ACCOUNT_HOLDER)

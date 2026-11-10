@@ -75,3 +75,6 @@ postgres_data/
 *.log
 scratch/
 .local_pgdata/
+
+# Local database backups
+backups/

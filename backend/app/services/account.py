@@ -139,6 +139,17 @@ class AccountService:
                 detail="Account not found",
             )
 
+        # System accounts cannot be frozen or closed through Admin operations
+        if (
+            account.account_type in (AccountType.SYSTEM_RESERVE, AccountType.INTERNAL_CLEARING)
+            or account.account_number in ("ACC-SYSTEM01", "ACC-SYSTEM02")
+            or account.account_number.startswith("ACC-SYSTEM")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="System accounts cannot be frozen or closed",
+            )
+
         # Closed accounts are terminal - cannot be reopened or transitioned
         if account.status == AccountStatus.CLOSED:
             raise HTTPException(

@@ -621,6 +621,92 @@ def test_group_b_auditor_role_restrictions(
     assert "items" in journal.json()
 
 
+def test_group_b_admin_cannot_initiate_transfers(
+    client: TestClient, admin_token: str, holder_token: str
+):
+    """
+    Verifies Admin cannot initiate customer-fund transfers (HTTP 403 Forbidden),
+    while preserving Admin read access to the transaction journal.
+    """
+    res_a = client.post(
+        "/api/v1/accounts",
+        headers={"Authorization": f"Bearer {holder_token}"},
+        json={"name": "Admin Transfer Source", "account_type": "customer_checking", "currency": "INR"},
+    )
+    acc_a_id = res_a.json()["id"]
+
+    res_b = client.post(
+        "/api/v1/accounts",
+        headers={"Authorization": f"Bearer {holder_token}"},
+        json={"name": "Admin Transfer Dest", "account_type": "customer_savings", "currency": "INR"},
+    )
+    acc_b_id = res_b.json()["id"]
+
+    # Fund account
+    client.post(
+        "/api/v1/transfers/deposit",
+        headers={"Authorization": f"Bearer {holder_token}"},
+        json={"account_id": acc_a_id, "amount": "1000.00"},
+    )
+
+    # Admin cannot initiate transfer -> 403 Forbidden
+    xf = client.post(
+        "/api/v1/transfers/transfer",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"source_account_id": acc_a_id, "destination_account_id": acc_b_id, "amount": "100.00"},
+    )
+    assert xf.status_code == 403
+    assert "Only Account Holders are permitted to initiate transfers" in xf.json()["detail"]
+
+    # Admin CAN inspect transaction journal -> 200 OK
+    journal = client.get(
+        "/api/v1/transfers",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert journal.status_code == 200
+    assert "items" in journal.json()
+
+
+def test_group_b_admin_cannot_deposit_or_withdraw(
+    client: TestClient, admin_token: str, holder_token: str
+):
+    """
+    Verifies Admin cannot directly invoke deposit or withdrawal endpoints to move customer funds (HTTP 403 Forbidden).
+    """
+    res = client.post(
+        "/api/v1/accounts",
+        headers={"Authorization": f"Bearer {holder_token}"},
+        json={"name": "Admin Dep/Wd Target", "account_type": "customer_checking", "currency": "INR"},
+    )
+    acc_id = res.json()["id"]
+
+    # 1. Admin deposit attempt rejected -> 403 Forbidden
+    dep = client.post(
+        "/api/v1/transfers/deposit",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"account_id": acc_id, "amount": "500.00"},
+    )
+    assert dep.status_code == 403
+    assert "Only Account Holders are permitted to perform deposits" in dep.json()["detail"]
+
+    # Fund via legitimate Account Holder
+    client.post(
+        "/api/v1/transfers/deposit",
+        headers={"Authorization": f"Bearer {holder_token}"},
+        json={"account_id": acc_id, "amount": "500.00"},
+    )
+
+    # 2. Admin withdrawal attempt rejected -> 403 Forbidden
+    wd = client.post(
+        "/api/v1/transfers/withdraw",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"account_id": acc_id, "amount": "200.00"},
+    )
+    assert wd.status_code == 403
+    assert "Only Account Holders are permitted to perform withdrawals" in wd.json()["detail"]
+
+
+
 # ==============================================================================
 # GROUP C: Database Engine Triggers, Immutability & Mandatory Safeguards
 # ==============================================================================

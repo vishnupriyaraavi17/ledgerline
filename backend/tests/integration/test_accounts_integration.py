@@ -320,6 +320,31 @@ def test_group_a_role_based_restrictions_and_lifecycle(
     assert reopen_res.status_code == 400
     assert "Closed accounts cannot be reopened" in reopen_res.json()["detail"]
 
+    # System accounts ACC-SYSTEM01 and ACC-SYSTEM02 cannot be frozen or closed by Admin (400)
+    all_accounts = client.get(
+        "/api/v1/accounts",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ).json()["items"]
+    sys_accounts = [a for a in all_accounts if a["account_number"] in ("ACC-SYSTEM01", "ACC-SYSTEM02")]
+    assert len(sys_accounts) >= 1
+    for sys_acc in sys_accounts:
+        sys_freeze = client.patch(
+            f"/api/v1/accounts/{sys_acc['id']}/status",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"status": "frozen"},
+        )
+        assert sys_freeze.status_code == 400
+        assert "System accounts cannot be frozen or closed" in sys_freeze.json()["detail"]
+
+        sys_close = client.patch(
+            f"/api/v1/accounts/{sys_acc['id']}/status",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"status": "closed"},
+        )
+        assert sys_close.status_code == 400
+        assert "System accounts cannot be frozen or closed" in sys_close.json()["detail"]
+
+
 
 def test_group_a_privilege_and_trigger_enforcement_under_runtime_role(db_session: Session):
     # 1. Reserved Account Number Pattern INSERT rejected by trigger

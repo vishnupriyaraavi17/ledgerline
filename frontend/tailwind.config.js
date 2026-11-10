@@ -7,23 +7,60 @@ export default {
   theme: {
     extend: {
       colors: {
+        forest: {
+          darkest: "#0B231D",
+          DEFAULT: "#102F28",
+          hover: "#16382C",
+          primary: "#1F5244",
+          light: "#2A6857",
+        },
+        cream: {
+          canvas: "#F6F7F4",
+          soft: "#FBFBF9",
+          DEFAULT: "#F6F7F4",
+        },
+        sage: {
+          badge: "#EDF4ED",
+          border: "#E5EBE4",
+          text: "#38724C",
+          muted: "#6D7C73",
+          accent: "#8BC7AE",
+        },
+        terracotta: {
+          badge: "#FCF1E8",
+          border: "#F0DCD2",
+          text: "#9B5540",
+          alert: "#854B35",
+        },
+        ink: {
+          DEFAULT: "#1D2B27",
+          secondary: "#4A5550",
+          muted: "#89938E",
+          border: "#E8EBE6",
+        },
         finance: {
-          bg: "#f8fafc",        // Neutral slate-50 background
-          card: "#ffffff",      // Clean white card background
-          border: "#e2e8f0",    // Subtle slate-200 border
-          text: "#0f172a",      // Dark navy / charcoal text (slate-900)
-          muted: "#64748b",     // Muted slate-500
-          navy: "#1e293b",      // Deep navy (slate-800)
-          navyDark: "#090d16",  // Ultra dark navy header
-          emerald: "#059669",   // Vibrant green for success / balanced books
-          emeraldLight: "#ecfdf5",
-          rose: "#dc2626",      // Crimson red for errors / alerts
-          roseLight: "#fef2f2",
-          amber: "#d97706",     // Amber for warnings
-          amberLight: "#fffbeb",
+          bg: "#F6F7F4",        // Warm porcelain / cream canvas
+          card: "#FFFFFF",      // Clean white card surface
+          border: "#E8EBE6",    // Warm refined border
+          text: "#1D2B27",      // Deep dark forest charcoal ink
+          muted: "#6D7C73",     // Soft sage gray
+          navy: "#102F28",      // Forest green primary
+          navyDark: "#0B231D",  // Deepest pine
+          emerald: "#38724C",   // Forest green credit
+          emeraldLight: "#EDF4ED",
+          rose: "#9B5540",      // Terracotta red debit
+          roseLight: "#FCF1E8",
+          amber: "#B45309",
+          amberLight: "#FEF3C7",
         }
       },
       fontFamily: {
+        serif: [
+          '"Playfair Display"',
+          'Georgia',
+          'Cambria',
+          'serif',
+        ],
         sans: [
           'Inter',
           '-apple-system',

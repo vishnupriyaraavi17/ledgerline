@@ -3,8 +3,8 @@ from typing import Optional, Tuple, List
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.app.models.user import User
-from backend.app.schemas.user import UserCreate, UserResponse, LoginRequest, TokenResponse, UserListResponse
+from backend.app.models.user import User, UserRole
+from backend.app.schemas.user import UserCreate, UserRegister, UserResponse, LoginRequest, TokenResponse, UserListResponse
 from backend.app.repositories.user import user_repository, UserRepository
 from backend.app.repositories.audit import audit_repository
 from backend.app.security.passwords import hash_password, verify_password
@@ -144,6 +144,22 @@ class AuthService:
         )
         db.commit()
         return UserResponse.model_validate(user)
+
+    def register_account_holder(
+        self, db: Session, register_in: UserRegister
+    ) -> UserResponse:
+        """
+        Public self-registration service for Account Holders.
+        Strictly forces role to UserRole.ACCOUNT_HOLDER server-side.
+        Logs security.user_registered to the cryptographic audit chain.
+        """
+        user_create = UserCreate(
+            username=register_in.username,
+            email=register_in.email,
+            password=register_in.password,
+            role=UserRole.ACCOUNT_HOLDER,
+        )
+        return self.create_user(db, user_create, admin_user=None)
 
     def list_users(self, db: Session, skip: int = 0, limit: int = 50) -> UserListResponse:
         """

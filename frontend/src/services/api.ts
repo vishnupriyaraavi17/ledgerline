@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import type { HealthResponse } from '../types/health';
-import type { LoginCredentials, TokenResponse, User, UserCreateInput, UserListResponse } from '../types/auth';
+import type { LoginCredentials, TokenResponse, User, UserCreateInput, UserRegisterInput, UserListResponse } from '../types/auth';
 import type {
   Account,
   AccountCreateInput,
@@ -71,6 +71,14 @@ export const apiService = {
    */
   async login(credentials: LoginCredentials): Promise<TokenResponse> {
     const response = await apiClient.post<TokenResponse>('/auth/login', credentials);
+    return response.data;
+  },
+
+  /**
+   * Registers a new self-service customer profile (Account Holder only).
+   */
+  async register(data: UserRegisterInput): Promise<User> {
+    const response = await apiClient.post<User>('/auth/register', data);
     return response.data;
   },
 

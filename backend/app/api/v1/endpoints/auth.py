@@ -3,12 +3,40 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db
-from backend.app.schemas.user import LoginRequest, TokenResponse, UserResponse
+from backend.app.schemas.user import LoginRequest, TokenResponse, UserRegister, UserResponse
 from backend.app.services.auth import auth_service
 from backend.app.security.dependencies import get_current_user
+from backend.app.security.rate_limiter import registration_limiter
 from backend.app.models.user import User
 
 router = APIRouter()
+
+
+@router.post(
+    "/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(registration_limiter)],
+    summary="Public Account Holder Registration",
+    description=(
+        "Registers a new self-service customer profile. "
+        "Strictly server-assigns ACCOUNT_HOLDER role without permitting role selection. "
+        "Does not issue an active session token upon registration; the user must subsequently sign in. "
+        "Protected by client IP rate limiting."
+    ),
+    responses={
+        201: {"description": "Customer registered successfully.", "model": UserResponse},
+        409: {"description": "Conflict: Username or email already registered."},
+        422: {"description": "Validation Error: Password complexity or format violation."},
+        429: {"description": "Too Many Requests: Rate limit exceeded."},
+    },
+)
+def register_customer(
+    request: UserRegister,
+    db: Session = Depends(get_db)
+):
+    return auth_service.register_account_holder(db, request)
+
 
 
 @router.post(
