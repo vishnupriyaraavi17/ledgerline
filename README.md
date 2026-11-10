@@ -42,11 +42,12 @@ LedgerLine is a modern digital banking platform built on an immutable, double-en
 - **RFC 4180 CSV Export**: Neutralizes spreadsheet formula injection (CWE-1236) and prepends UTF-8 Byte Order Mark (`0xEF, 0xBB, 0xBF`) for correct display of the ₹ symbol.
 - **Print Optimization**: A4 landscape print preview hiding navigation chrome, buttons, and pagination controls.
 
-### Security & Public Registration
+### Security, Rate Limiting & Public Registration
 - **Argon2id Password Hashing**: Memory cost 64 MB, 3 iterations, 4 parallel threads.
 - **Stateless JWTs with Immediate Revocation**: Every authenticated request verifies active user status in the database.
 - **Secure Public Self-Registration**: Public registration endpoint strictly forces `role = ACCOUNT_HOLDER`.
-- **Registration Rate Limiting**: In-memory sliding-window limiter enforcing 5 registrations/hour per IP and 3 attempts/hour per username/email with HTTP 429 responses.
+- **Redis Distributed Rate Limiting**: Atomic sliding-window rate limiting backed by Redis and Lua scripts (10 requests/60s on public registration). Fails closed (HTTP 503) during outages to prevent unconstrained brute-force attacks.
+- **Liveness & Readiness Probes**: Cloud-native health endpoints (`/health/live`, `/health/ready`) with bounded timeouts and complete credential/traceback masking.
 
 ---
 
@@ -70,8 +71,9 @@ LedgerLine is a modern digital banking platform built on an immutable, double-en
 - **HTTP Client**: Axios (In-memory token management, zero localStorage token storage)
 - **Icons**: Lucide React
 
-### Database
-- **Engine**: PostgreSQL 17
+### Database & Cache
+- **Database Engine**: PostgreSQL 17
+- **Distributed Cache & Rate Limiting**: Redis 7+
 - **Containerization**: Docker Compose (`docker-compose.yml`)
 
 ---
@@ -205,7 +207,9 @@ From the project root:
 ```
 - API Base URL: `http://127.0.0.1:8000`
 - Interactive API Docs (Swagger): `http://127.0.0.1:8000/docs`
-- Health Check: `http://127.0.0.1:8000/api/v1/health`
+- Health Diagnostic Probe: `http://127.0.0.1:8000/api/v1/health`
+- Liveness Probe (process execution): `http://127.0.0.1:8000/api/v1/health/live` (or `/health/live`)
+- Readiness Probe (PostgreSQL & Redis): `http://127.0.0.1:8000/api/v1/health/ready` (or `/health/ready`)
 
 ### Start the Frontend
 In a second terminal:
@@ -233,9 +237,9 @@ The system includes three pre-configured role tiers. **Login credentials corresp
 
 ## 7. Testing & Verification
 
-The test suite contains **176 automated tests** with 100% pass rate:
-- **Unit Tests**: Schema validation, decimal precision, canonical hash canonicalization, statement math, rate limiting.
-- **Integration Tests**: Real PostgreSQL transactions, pessimistic row locking, concurrent transfer race conditions, idempotency deduplication, audit chain verification, account lifecycle FSM, and CSV export protection.
+The test suite contains **200 automated tests** with 100% pass rate:
+- **Unit Tests**: Schema validation, decimal precision, canonical hash canonicalization, statement math, Redis rate limiting (sliding window, concurrent threads, fail-closed behavior), health probes.
+- **Integration Tests**: Real PostgreSQL transactions, pessimistic row locking, concurrent transfer race conditions, idempotency deduplication, audit chain verification, account lifecycle FSM, distributed Redis rate limiting on registration, and CSV export protection.
 
 ### Fail-Closed Safety Guard
 All automated tests strictly connect to `ledgerline_test`. The test harness in `backend/tests/conftest.py` inspects the active database name and aborts immediately if pointed at the `ledgerline` demo database.
@@ -256,8 +260,13 @@ npm --prefix frontend run build
 | Component | Target Platform | Build Command / Entrypoint | Key Environment Variables |
 | :--- | :--- | :--- | :--- |
 | **Frontend** | Vercel / Netlify / Cloudflare Pages | `npm run build` (Output: `dist`) | `VITE_API_URL=https://api.yourdomain.com/api/v1` |
-| **Backend** | Render / Railway / Fly.io | `uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT` | `DATABASE_URL`, `JWT_SECRET_KEY`, `BACKEND_CORS_ORIGINS` |
+| **Backend** | Render / Railway / Fly.io / ECS | `uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT` | `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET_KEY`, `BACKEND_CORS_ORIGINS` |
 | **Database** | Managed PostgreSQL (Neon / Supabase / Render) | PostgreSQL 16 or 17 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` |
+| **Cache / Rate Limiter** | Managed Redis (Upstash / Redis Cloud / ElastiCache) | Redis 7+ | `REDIS_URL` |
+
+### Health Check Probes for Orchestrators
+- **Liveness Probe**: `GET /health/live` (HTTP 200 when container process is running).
+- **Readiness Probe**: `GET /health/ready` (HTTP 200 when PostgreSQL and Redis are both connected; HTTP 503 otherwise). Bounded with 2-second timeouts. Zero credentials or internal stack traces exposed.
 
 *Note: CORS origins can be configured as a comma-separated list via `BACKEND_CORS_ORIGINS`.*
 

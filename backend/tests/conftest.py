@@ -91,6 +91,28 @@ def setup_test_database():
     yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_redis():
+    """
+    Provides an isolated in-memory Redis instance with full Lua script evaluation (via lupa)
+    for automated test execution, ensuring tests are hermetic and do not require external services.
+    """
+    import fakeredis
+    from backend.app.core.redis import set_redis_client, close_redis
+
+    fake_client = fakeredis.FakeRedis(decode_responses=True)
+    set_redis_client(fake_client)
+    yield fake_client
+    close_redis()
+
+
+@pytest.fixture(autouse=True)
+def flush_test_redis(setup_test_redis):
+    """Guarantees each test starts with an isolated, clean Redis state."""
+    setup_test_redis.flushall()
+    yield
+
+
 @pytest.fixture(scope="session")
 def client() -> TestClient:
     """

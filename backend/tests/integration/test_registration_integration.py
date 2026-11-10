@@ -128,21 +128,27 @@ def test_public_registration_weak_password(client: TestClient):
 
 def test_public_registration_rate_limiting(client: TestClient):
     # Set a small limit for test
+    orig_limit = registration_limiter.requests_limit
+    orig_window = registration_limiter.window_seconds
     registration_limiter.requests_limit = 3
     registration_limiter.window_seconds = 60
 
-    for i in range(3):
-        suffix = uuid.uuid4().hex[:6]
-        res = client.post(
-            "/api/v1/auth/register",
-            json={"username": f"rate_{suffix}", "email": f"rate_{suffix}@example.com", "password": "ValidPass123!"},
-        )
-        assert res.status_code == 201
+    try:
+        for i in range(3):
+            suffix = uuid.uuid4().hex[:6]
+            res = client.post(
+                "/api/v1/auth/register",
+                json={"username": f"rate_{suffix}", "email": f"rate_{suffix}@example.com", "password": "ValidPass123!"},
+            )
+            assert res.status_code == 201
 
-    # 4th request must hit 429
-    res_blocked = client.post(
-        "/api/v1/auth/register",
-        json={"username": "blocked_user", "email": "blocked@example.com", "password": "ValidPass123!"},
-    )
-    assert res_blocked.status_code == 429
-    assert "Retry-After" in res_blocked.headers
+        # 4th request must hit 429
+        res_blocked = client.post(
+            "/api/v1/auth/register",
+            json={"username": "blocked_user", "email": "blocked@example.com", "password": "ValidPass123!"},
+        )
+        assert res_blocked.status_code == 429
+        assert "Retry-After" in res_blocked.headers
+    finally:
+        registration_limiter.requests_limit = orig_limit
+        registration_limiter.window_seconds = orig_window

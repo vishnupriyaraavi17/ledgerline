@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     MIGRATION_POSTGRES_USER: str = "ledgerline_owner"
     MIGRATION_POSTGRES_PASSWORD: Optional[str] = None
 
+    # Redis Configuration (Distributed Rate Limiting & Caching)
+    REDIS_URL: str = "redis://127.0.0.1:6379/0"
+
     # Authentication & JWT Configuration
     # Strict enforcement: Loaded strictly from environment with no default. Fails startup if missing or weak (<32 chars).
     JWT_SECRET_KEY: str
@@ -116,6 +119,19 @@ class Settings(BaseSettings):
     def safe_db_info(self) -> str:
         """Returns non-sensitive database connection details for logging/diagnostics."""
         return f"{self.POSTGRES_USER}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+
+    @property
+    def safe_redis_info(self) -> str:
+        """Returns non-sensitive Redis connection details for diagnostics (never exposes passwords)."""
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(self.REDIS_URL)
+            host = parsed.hostname or "127.0.0.1"
+            port = parsed.port or 6379
+            db = parsed.path.lstrip("/") or "0"
+            return f"{host}:{port}/{db}"
+        except Exception:
+            return "redis://***"
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE_PATH) if ENV_FILE_PATH.exists() else ".env",
