@@ -6,8 +6,7 @@ services:
     plan: free
     branch: feature/redis-health-checks
     buildCommand: pip install -r backend/requirements.txt
-    preDeployCommand: alembic -c backend/alembic.ini upgrade head
-    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: alembic -c backend/alembic.ini upgrade head && uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/v1/health/live
     envVars:
       - key: ENVIRONMENT
@@ -19,7 +18,9 @@ services:
       - key: POSTGRES_PORT
         value: "5432"
       - key: POSTGRES_DB
-        value: "neondb?sslmode=require"
+        value: neondb
+      - key: PGSSLMODE
+        value: require
       - key: POSTGRES_USER
         value: ledgerline_app
       - key: POSTGRES_PASSWORD
@@ -33,4 +34,4 @@ services:
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: BACKEND_CORS_ORIGINS
-        value: "*"
+        sync: false
