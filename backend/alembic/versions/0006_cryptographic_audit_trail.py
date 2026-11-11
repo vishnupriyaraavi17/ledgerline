@@ -68,9 +68,34 @@ def upgrade() -> None:
             f"Zero memberships are required for complete role isolation."
         )
 
-    # 2. Extra Safeguard 1: Ensure PUBLIC and ledgerline_app cannot CREATE objects in schema public
-    op.execute(f"REVOKE CREATE ON SCHEMA public FROM PUBLIC, {app_user};")
-    op.execute(f"GRANT USAGE ON SCHEMA public TO {app_user};")
+    # 2. Pre-Flight Safeguard 1: Assert strict schema public access privileges
+    public_has_create = conn.execute(
+        sa.text("SELECT has_schema_privilege('public', 'public', 'CREATE')")
+    ).scalar()
+    if public_has_create:
+        raise RuntimeError(
+            "Pre-flight role verification failed: PUBLIC must not hold CREATE privilege on schema public."
+        )
+
+    app_has_create = conn.execute(
+        sa.text("SELECT has_schema_privilege(:app_user, 'public', 'CREATE')"),
+        {"app_user": app_user},
+    ).scalar()
+    if app_has_create:
+        raise RuntimeError(
+            f"Pre-flight role verification failed: Runtime role '{app_user}' must not hold CREATE privilege on schema public."
+        )
+
+    owner_has_create = conn.execute(
+        sa.text("SELECT has_schema_privilege('ledgerline_owner', 'public', 'CREATE')")
+    ).scalar()
+    owner_has_usage = conn.execute(
+        sa.text("SELECT has_schema_privilege('ledgerline_owner', 'public', 'USAGE')")
+    ).scalar()
+    if not (owner_has_create and owner_has_usage):
+        raise RuntimeError(
+            "Pre-flight role verification failed: Migration role 'ledgerline_owner' must hold USAGE and CREATE on schema public."
+        )
 
     # 3. Create public.audit_chain_head Table and Seed Genesis Row
     op.execute("""
