@@ -10,6 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from backend.app.core.config import settings
+
 # revision identifiers, used by Alembic.
 revision: str = '0002_create_users_table'
 down_revision: Union[str, None] = '0001_initial_baseline'
@@ -35,8 +37,17 @@ def upgrade() -> None:
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
     op.create_index(op.f('ix_users_role'), 'users', ['role'], unique=False)
 
+    # Least-privilege runtime role permissions (SELECT, INSERT only; UPDATE and DELETE withheld)
+    app_user = settings.RUNTIME_POSTGRES_USER
+    op.execute("REVOKE ALL ON TABLE users FROM PUBLIC;")
+    op.execute(f"REVOKE ALL ON TABLE users FROM {app_user};")
+    op.execute(f"GRANT SELECT, INSERT ON TABLE users TO {app_user};")
+
 
 def downgrade() -> None:
+    app_user = settings.RUNTIME_POSTGRES_USER
+    op.execute(f"REVOKE ALL ON TABLE users FROM {app_user};")
+
     op.drop_index(op.f('ix_users_role'), table_name='users')
     op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_index(op.f('ix_users_username'), table_name='users')

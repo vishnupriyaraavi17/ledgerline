@@ -1,6 +1,7 @@
 import uuid
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
@@ -364,3 +365,30 @@ def test_password_hash_never_exposed_in_any_response(
         assert "Admin_SecPass" not in text
         assert "Holder_SecPass" not in text
         assert "Auditor_SecPass" not in text
+
+
+# ------------------------------------------------------------------------------
+# 7. Runtime Role Users Table Privilege Audit
+# ------------------------------------------------------------------------------
+
+def test_runtime_role_users_table_permissions(db_session: Session):
+    """
+    Verifies that ledgerline_app holds strictly required SELECT and INSERT
+    privileges on the users table, and that TRUNCATE is strictly withheld.
+    """
+    app_user = settings.RUNTIME_POSTGRES_USER
+
+    # SELECT and INSERT are strictly required for authentication and registration
+    assert db_session.execute(
+        text(f"SELECT has_table_privilege('{app_user}', 'users', 'SELECT')")
+    ).scalar() is True, f"Expected SELECT on users for {app_user}"
+
+    assert db_session.execute(
+        text(f"SELECT has_table_privilege('{app_user}', 'users', 'INSERT')")
+    ).scalar() is True, f"Expected INSERT on users for {app_user}"
+
+    # TRUNCATE must always be withheld
+    assert db_session.execute(
+        text(f"SELECT has_table_privilege('{app_user}', 'users', 'TRUNCATE')")
+    ).scalar() is False, f"Expected TRUNCATE to be withheld on users for {app_user}"
+
