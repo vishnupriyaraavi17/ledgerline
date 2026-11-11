@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: ledgerline-backend
+    runtime: python
+    region: singapore
+    plan: free
+    branch: feature/redis-health-checks
+    buildCommand: pip install -r backend/requirements.txt
+    preDeployCommand: alembic -c backend/alembic.ini upgrade head
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health/live
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: POSTGRES_SERVER
+        sync: false
+      - key: POSTGRES_PORT
+        value: "5432"
+      - key: POSTGRES_DB
+        value: "neondb?sslmode=require"
+      - key: POSTGRES_USER
+        value: ledgerline_app
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: MIGRATION_POSTGRES_USER
+        value: ledgerline_owner
+      - key: MIGRATION_POSTGRES_PASSWORD
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: BACKEND_CORS_ORIGINS
+        value: "*"
