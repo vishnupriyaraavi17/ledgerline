@@ -1,5 +1,6 @@
 # Environment configuration
 .env
+.env*
 .env.local
 .env.*.local
 *.env
