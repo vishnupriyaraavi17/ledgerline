@@ -70,7 +70,16 @@ def upgrade() -> None:
 
     # 2. Pre-Flight Safeguard 1: Assert strict schema public access privileges
     public_has_create = conn.execute(
-        sa.text("SELECT has_schema_privilege('public', 'public', 'CREATE')")
+        sa.text("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM pg_namespace n,
+                LATERAL aclexplode(COALESCE(n.nspacl, acldefault(CAST('n' AS "char"), n.nspowner))) a 
+                WHERE n.nspname = 'public' 
+                  AND a.grantee = 0 
+                  AND a.privilege_type = 'CREATE'
+            )
+        """)
     ).scalar()
     if public_has_create:
         raise RuntimeError(
