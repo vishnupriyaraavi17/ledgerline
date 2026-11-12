@@ -1,10 +1,14 @@
+import concurrent.futures
+from unittest.mock import MagicMock
 import uuid
 import pytest
 from fastapi.testclient import TestClient
+from redis.exceptions import ConnectionError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
+from backend.app.core.redis import get_redis_client, set_redis_client
 from backend.app.db.session import SessionLocal
 from backend.app.models.user import User, UserRole
 from backend.app.repositories.user import user_repository
@@ -113,6 +117,200 @@ def test_swagger_oauth2_token_endpoint(client: TestClient):
     assert "access_token" in data
     assert data["token_type"] == "bearer"
     assert data["user"]["role"] == "account_holder"
+    assert settings.REFRESH_COOKIE_NAME in response.cookies
+
+
+def test_login_sets_httponly_refresh_cookie(client: TestClient):
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "admin", "password": settings.SEED_ADMIN_PASSWORD},
+    )
+    assert response.status_code == 200
+    assert settings.REFRESH_COOKIE_NAME in response.cookies
+    refresh_token = response.cookies[settings.REFRESH_COOKIE_NAME]
+    assert len(refresh_token) > 20
+
+
+def test_refresh_session_restores_tokens_and_rotates(client: TestClient):
+    # 1. Login
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "holder", "password": settings.SEED_HOLDER_PASSWORD},
+    )
+    assert login_res.status_code == 200
+    initial_cookie = login_res.cookies[settings.REFRESH_COOKIE_NAME]
+
+    # 2. Refresh session using the cookie
+    refresh_res = client.post(
+        "/api/v1/auth/refresh",
+        cookies={settings.REFRESH_COOKIE_NAME: initial_cookie},
+    )
+    assert refresh_res.status_code == 200
+    data = refresh_res.json()
+    assert "access_token" in data
+    assert data["user"]["username"] == "holder"
+    assert data["user"]["role"] == "account_holder"
+
+    # 3. Verify token rotation: new cookie issued
+    rotated_cookie = refresh_res.cookies[settings.REFRESH_COOKIE_NAME]
+    assert rotated_cookie != initial_cookie
+
+    # 4. Old refresh token cannot be reused (rotation invalidated it)
+    replay_res = client.post(
+        "/api/v1/auth/refresh",
+        cookies={settings.REFRESH_COOKIE_NAME: initial_cookie},
+    )
+    assert replay_res.status_code == 401
+
+
+def test_logout_revokes_session_and_clears_cookie(client: TestClient):
+    # 1. Login
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "auditor", "password": settings.SEED_AUDITOR_PASSWORD},
+    )
+    assert login_res.status_code == 200
+    cookie = login_res.cookies[settings.REFRESH_COOKIE_NAME]
+
+    # 2. Logout
+    logout_res = client.post(
+        "/api/v1/auth/logout",
+        cookies={settings.REFRESH_COOKIE_NAME: cookie},
+    )
+    assert logout_res.status_code == 200
+    assert logout_res.json()["detail"] == "Successfully logged out"
+
+    # 3. Attempting to refresh with the revoked cookie must fail with 401
+    refresh_res = client.post(
+        "/api/v1/auth/refresh",
+        cookies={settings.REFRESH_COOKIE_NAME: cookie},
+    )
+    assert refresh_res.status_code == 401
+
+
+def test_refresh_without_cookie_rejected(client: TestClient):
+    res = client.post("/api/v1/auth/refresh")
+    assert res.status_code == 401
+    assert "Active refresh session not found" in res.json()["detail"]
+
+
+def test_first_refresh_succeeds(client: TestClient):
+    """Verifies that an initial refresh request with a valid cookie succeeds and rotates token."""
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "holder", "password": settings.SEED_HOLDER_PASSWORD},
+    )
+    assert login_res.status_code == 200
+    initial_cookie = login_res.cookies[settings.REFRESH_COOKIE_NAME]
+
+    refresh_res = client.post(
+        "/api/v1/auth/refresh",
+        cookies={settings.REFRESH_COOKIE_NAME: initial_cookie},
+    )
+    assert refresh_res.status_code == 200
+    data = refresh_res.json()
+    assert "access_token" in data
+    assert data["user"]["username"] == "holder"
+    assert refresh_res.cookies[settings.REFRESH_COOKIE_NAME] != initial_cookie
+
+
+def test_reusing_same_refresh_token_rejected(client: TestClient):
+    """Verifies that an already-consumed refresh token cannot be reused."""
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "holder", "password": settings.SEED_HOLDER_PASSWORD},
+    )
+    assert login_res.status_code == 200
+    initial_cookie = login_res.cookies[settings.REFRESH_COOKIE_NAME]
+
+    # First consumption succeeds
+    first_refresh = client.post(
+        "/api/v1/auth/refresh",
+        cookies={settings.REFRESH_COOKIE_NAME: initial_cookie},
+    )
+    assert first_refresh.status_code == 200
+
+    # Second consumption of the same token is rejected
+    replay_refresh = client.post(
+        "/api/v1/auth/refresh",
+        cookies={settings.REFRESH_COOKIE_NAME: initial_cookie},
+    )
+    assert replay_refresh.status_code == 401
+    assert "revoked, expired, or already consumed" in replay_refresh.json()["detail"]
+
+
+def test_concurrent_refresh_attempts_cannot_both_succeed(client: TestClient):
+    """
+    Verifies race-condition protection: two simultaneous refresh requests using the exact same
+    refresh token cannot both succeed. Exactly one must succeed (200) and the other must be rejected (401).
+    """
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "holder", "password": settings.SEED_HOLDER_PASSWORD},
+    )
+    assert login_res.status_code == 200
+    cookie = login_res.cookies[settings.REFRESH_COOKIE_NAME]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        f1 = executor.submit(lambda: client.post("/api/v1/auth/refresh", cookies={settings.REFRESH_COOKIE_NAME: cookie}))
+        f2 = executor.submit(lambda: client.post("/api/v1/auth/refresh", cookies={settings.REFRESH_COOKIE_NAME: cookie}))
+        r1, r2 = f1.result(), f2.result()
+
+    statuses = sorted([r1.status_code, r2.status_code])
+    assert statuses == [200, 401], f"Expected exactly one 200 and one 401, but received: {[r1.status_code, r2.status_code]}"
+
+
+def test_refresh_rejected_when_redis_returns_zero(client: TestClient):
+    """Verifies that when Redis delete returns 0 (consumed/absent session), refresh is rejected with 401."""
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "holder", "password": settings.SEED_HOLDER_PASSWORD},
+    )
+    assert login_res.status_code == 200
+    cookie = login_res.cookies[settings.REFRESH_COOKIE_NAME]
+
+    original_client = get_redis_client()
+    mock_redis = MagicMock()
+    mock_redis.delete.return_value = 0
+    set_redis_client(mock_redis)
+
+    try:
+        res = client.post(
+            "/api/v1/auth/refresh",
+            cookies={settings.REFRESH_COOKIE_NAME: cookie},
+        )
+        assert res.status_code == 401
+        assert "Session has been revoked, expired, or already consumed" in res.json()["detail"]
+    finally:
+        set_redis_client(original_client)
+
+
+def test_refresh_fails_closed_on_redis_connection_failure(client: TestClient):
+    """
+    Verifies that a Redis connection failure fails closed with HTTP 503 Service Unavailable,
+    guaranteeing no unverified refresh request can authenticate.
+    """
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "holder", "password": settings.SEED_HOLDER_PASSWORD},
+    )
+    assert login_res.status_code == 200
+    cookie = login_res.cookies[settings.REFRESH_COOKIE_NAME]
+
+    original_client = get_redis_client()
+    failing_redis = MagicMock()
+    failing_redis.delete.side_effect = ConnectionError("Redis cluster connection failed")
+    set_redis_client(failing_redis)
+
+    try:
+        res = client.post(
+            "/api/v1/auth/refresh",
+            cookies={settings.REFRESH_COOKIE_NAME: cookie},
+        )
+        assert res.status_code == 503
+        assert "Authentication service temporarily unavailable" in res.json()["detail"]
+    finally:
+        set_redis_client(original_client)
 
 
 # ------------------------------------------------------------------------------

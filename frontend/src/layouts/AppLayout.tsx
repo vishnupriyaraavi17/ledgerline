@@ -15,11 +15,11 @@ import {
 import { useAuth } from '../context/AuthContext';
 
 export const AppLayout: React.FC = () => {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/login');
   };
 
@@ -35,6 +35,19 @@ export const AppLayout: React.FC = () => {
         return 'Customer';
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#F1F4EF] flex items-center justify-center font-sans">
+        <div className="text-center space-y-3">
+          <div className="w-10 h-10 rounded-xl bg-[#245344] flex items-center justify-center mx-auto text-white shadow-xs">
+            <ShieldCheck className="w-5 h-5 text-[#DCE9DF] animate-pulse" />
+          </div>
+          <p className="text-xs font-semibold text-[#1D2B27]">Verifying institutional session...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F1F4EF] text-[#1D2B27] flex flex-col font-sans">

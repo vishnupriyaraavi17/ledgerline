@@ -52,3 +52,36 @@ def test_token_with_wrong_secret_fails():
 
     with pytest.raises(jwt.InvalidSignatureError):
         decode_access_token(foreign_token)
+
+
+def test_create_and_decode_refresh_token():
+    payload = {
+        "sub": "498b4448-b5ab-40ab-9a28-c7b9347860db",
+        "role": "admin",
+        "jti": "random-uuid-1234",
+    }
+    from backend.app.security.tokens import create_refresh_token, decode_refresh_token
+    token = create_refresh_token(payload)
+    assert isinstance(token, str)
+
+    decoded = decode_refresh_token(token)
+    assert decoded["sub"] == payload["sub"]
+    assert decoded["role"] == "admin"
+    assert decoded["jti"] == "random-uuid-1234"
+    assert decoded["type"] == "refresh"
+
+
+def test_access_token_rejected_by_decode_refresh_token():
+    from backend.app.security.tokens import create_access_token, decode_refresh_token
+    access_token = create_access_token({"sub": "user-123", "role": "admin"})
+
+    with pytest.raises(jwt.InvalidTokenError, match="Token is not a valid refresh token"):
+        decode_refresh_token(access_token)
+
+
+def test_expired_refresh_token_fails():
+    from backend.app.security.tokens import create_refresh_token, decode_refresh_token
+    expired = create_refresh_token({"sub": "user-123", "role": "admin"}, expires_delta=timedelta(days=-1))
+
+    with pytest.raises(jwt.ExpiredSignatureError):
+        decode_refresh_token(expired)

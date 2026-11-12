@@ -537,7 +537,7 @@ export const TransfersPage: React.FC = () => {
               }`}
             >
               <ArrowDownLeft className="w-4 h-4" />
-              <span>Add Money (Demo)</span>
+              <span>Deposit Funds</span>
             </button>
 
             <button
@@ -553,7 +553,7 @@ export const TransfersPage: React.FC = () => {
               }`}
             >
               <ArrowUpRight className="w-4 h-4" />
-              <span>Withdraw Money (Demo)</span>
+              <span>Withdraw Funds</span>
             </button>
           </>
         )}
@@ -774,16 +774,16 @@ export const TransfersPage: React.FC = () => {
         {activeTab === 'deposit' && (
           <form onSubmit={handleDeposit} className="max-w-2xl space-y-5">
             <div>
-              <h2 className="text-base font-serif font-bold text-[#1D2B27]">Add Money (Demo)</h2>
+              <h2 className="text-base font-serif font-bold text-[#1D2B27]">Deposit Funds</h2>
               <p className="text-xs text-[#6D7C73] mt-1">
-                Deposit virtual demo funds into your account for testing purposes.
+                Deposit funds directly into your verified account.
               </p>
             </div>
 
             <div className="p-3.5 bg-[#DCE9DF]/40 border border-[#C5D9C9] rounded-xl text-xs flex items-start gap-2.5">
               <Info className="w-4 h-4 text-[#245344] shrink-0 mt-0.5" />
               <span className="text-[#245344] font-medium leading-relaxed">
-                This is a demonstration feature using virtual funds. No real monetary transactions take place.
+                Virtual funds only — no real money is transferred.
               </span>
             </div>
 
@@ -834,7 +834,7 @@ export const TransfersPage: React.FC = () => {
               <input
                 type="text"
                 maxLength={255}
-                placeholder="e.g. Initial demo funding, test deposit"
+                placeholder="e.g. Account funding, salary credit"
                 value={depositForm.description}
                 onChange={(e) => updateDepositField('description', e.target.value)}
                 className="w-full text-xs border border-[#E3E9E2] rounded-xl p-2.5 text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
@@ -850,12 +850,12 @@ export const TransfersPage: React.FC = () => {
                 {formSubmitting ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Adding Demo Funds...</span>
+                    <span>Depositing Funds...</span>
                   </>
                 ) : (
                   <>
                     <ArrowDownLeft className="w-3.5 h-3.5" />
-                    <span>Add Money (Demo)</span>
+                    <span>Deposit Funds</span>
                   </>
                 )}
               </button>
@@ -867,16 +867,16 @@ export const TransfersPage: React.FC = () => {
         {activeTab === 'withdraw' && (
           <form onSubmit={handleWithdrawal} className="max-w-2xl space-y-5">
             <div>
-              <h2 className="text-base font-serif font-bold text-[#1D2B27]">Withdraw Money (Demo)</h2>
+              <h2 className="text-base font-serif font-bold text-[#1D2B27]">Withdraw Funds</h2>
               <p className="text-xs text-[#6D7C73] mt-1">
-                Withdraw virtual demo funds from your account. Overdrafts are not permitted.
+                Withdraw funds from your account. Overdrafts are strictly prohibited.
               </p>
             </div>
 
             <div className="p-3.5 bg-[#F5E9DF]/50 border border-[#E8D5C4] rounded-xl text-xs flex items-start gap-2.5">
               <Info className="w-4 h-4 text-[#9B5540] shrink-0 mt-0.5" />
               <span className="text-[#9B5540] font-medium leading-relaxed">
-                This is a demonstration feature using virtual funds. No real monetary transactions take place.
+                Virtual funds only — no real money is transferred.
               </span>
             </div>
 
@@ -927,7 +927,7 @@ export const TransfersPage: React.FC = () => {
               <input
                 type="text"
                 maxLength={255}
-                placeholder="e.g. Test ATM payout, vendor demo withdrawal"
+                placeholder="e.g. ATM withdrawal, vendor payout"
                 value={withdrawForm.description}
                 onChange={(e) => updateWithdrawField('description', e.target.value)}
                 className="w-full text-xs border border-[#E3E9E2] rounded-xl p-2.5 text-[#1D2B27] focus:ring-2 focus:ring-[#245344] focus:border-[#245344] outline-none"
@@ -948,7 +948,7 @@ export const TransfersPage: React.FC = () => {
                 ) : (
                   <>
                     <ArrowUpRight className="w-3.5 h-3.5" />
-                    <span>Withdraw Money (Demo)</span>
+                    <span>Withdraw Funds</span>
                   </>
                 )}
               </button>

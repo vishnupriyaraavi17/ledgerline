@@ -16,7 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { apiService } from '../services/api';
 
 export const Login: React.FC = () => {
-  const { login, error: authError, clearError, isAuthenticated } = useAuth();
+  const { login, error: authError, clearError, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -43,10 +43,46 @@ export const Login: React.FC = () => {
   const from = (location.state as any)?.from?.pathname || '/';
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!isLoading && isAuthenticated) {
       navigate(from, { replace: true });
     }
-  }, [isAuthenticated, navigate, from]);
+  }, [isAuthenticated, isLoading, navigate, from]);
+
+  // Clean up all sensitive form state upon component unmount or route transition
+  useEffect(() => {
+    return () => {
+      setUsernameOrEmail('');
+      setLoginPassword('');
+      setRegUsername('');
+      setRegEmail('');
+      setRegPassword('');
+      setRegConfirmPassword('');
+      clearError();
+    };
+  }, [clearError]);
+
+  const handleSwitchToLogin = () => {
+    setMode('login');
+    // Clear registration fields and errors
+    setRegUsername('');
+    setRegEmail('');
+    setRegPassword('');
+    setRegConfirmPassword('');
+    setShowRegPassword(false);
+    setRegError(null);
+    clearError();
+  };
+
+  const handleSwitchToRegister = () => {
+    setMode('register');
+    // Clear login fields and errors
+    setUsernameOrEmail('');
+    setLoginPassword('');
+    setShowLoginPassword(false);
+    setRegSuccess(null);
+    setRegError(null);
+    clearError();
+  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,9 +91,13 @@ export const Login: React.FC = () => {
     setIsLoggingIn(true);
     try {
       await login({ username_or_email: usernameOrEmail, password: loginPassword });
+      // Clear form on successful login
+      setUsernameOrEmail('');
+      setLoginPassword('');
       navigate(from, { replace: true });
     } catch {
-      // Handled in auth context
+      // Clear password field immediately upon failed login attempt
+      setLoginPassword('');
     } finally {
       setIsLoggingIn(false);
     }
@@ -69,11 +109,15 @@ export const Login: React.FC = () => {
 
     if (regPassword !== regConfirmPassword) {
       setRegError('Passwords do not match. Please verify both fields.');
+      setRegPassword('');
+      setRegConfirmPassword('');
       return;
     }
 
     if (regPassword.length < 8) {
       setRegError('Password must be at least 8 characters long.');
+      setRegPassword('');
+      setRegConfirmPassword('');
       return;
     }
 
@@ -85,15 +129,17 @@ export const Login: React.FC = () => {
         password: regPassword,
       });
 
-      // Clear fields and switch to login tab with clear confirmation
+      // Clear all registration fields upon success and transition cleanly to sign in
       setRegUsername('');
       setRegEmail('');
       setRegPassword('');
       setRegConfirmPassword('');
       setRegSuccess('Your Account Holder profile has been registered. Please sign in below.');
       setMode('login');
-      setUsernameOrEmail(regUsername.trim());
     } catch (err: any) {
+      // Clear sensitive password inputs on failure
+      setRegPassword('');
+      setRegConfirmPassword('');
       const detail = err.response?.data?.detail;
       setRegError(typeof detail === 'string' ? detail : 'Unable to complete registration. Please check the information provided.');
     } finally {
@@ -177,11 +223,7 @@ export const Login: React.FC = () => {
             <div className="flex rounded-xl bg-[#F6F7F4] p-1 mb-8 border border-[#E5EBE4]">
               <button
                 type="button"
-                onClick={() => {
-                  setMode('login');
-                  setRegError(null);
-                  clearError();
-                }}
+                onClick={handleSwitchToLogin}
                 className={`flex-1 py-2 text-xs font-semibold rounded-lg transition ${
                   mode === 'login'
                     ? 'bg-white text-[#1D2B27] shadow-xs'
@@ -192,11 +234,7 @@ export const Login: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setMode('register');
-                  setRegSuccess(null);
-                  clearError();
-                }}
+                onClick={handleSwitchToRegister}
                 className={`flex-1 py-2 text-xs font-semibold rounded-lg transition ${
                   mode === 'register'
                     ? 'bg-white text-[#1D2B27] shadow-xs'
@@ -243,6 +281,7 @@ export const Login: React.FC = () => {
                     <User className="w-4 h-4 text-[#89938E] absolute left-3.5 top-3 pointer-events-none" />
                     <input
                       type="text"
+                      autoComplete="username"
                       value={usernameOrEmail}
                       onChange={(e) => {
                         clearError();
@@ -263,6 +302,7 @@ export const Login: React.FC = () => {
                     <Lock className="w-4 h-4 text-[#89938E] absolute left-3.5 top-3 pointer-events-none" />
                     <input
                       type={showLoginPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
                       value={loginPassword}
                       onChange={(e) => {
                         clearError();
@@ -316,6 +356,7 @@ export const Login: React.FC = () => {
                     <User className="w-4 h-4 text-[#89938E] absolute left-3.5 top-3 pointer-events-none" />
                     <input
                       type="text"
+                      autoComplete="username"
                       value={regUsername}
                       onChange={(e) => {
                         setRegError(null);
@@ -339,6 +380,7 @@ export const Login: React.FC = () => {
                     <Mail className="w-4 h-4 text-[#89938E] absolute left-3.5 top-3 pointer-events-none" />
                     <input
                       type="email"
+                      autoComplete="email"
                       value={regEmail}
                       onChange={(e) => {
                         setRegError(null);
@@ -359,6 +401,7 @@ export const Login: React.FC = () => {
                     <Lock className="w-4 h-4 text-[#89938E] absolute left-3.5 top-3 pointer-events-none" />
                     <input
                       type={showRegPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
                       value={regPassword}
                       onChange={(e) => {
                         setRegError(null);
@@ -388,6 +431,7 @@ export const Login: React.FC = () => {
                     <Lock className="w-4 h-4 text-[#89938E] absolute left-3.5 top-3 pointer-events-none" />
                     <input
                       type={showRegPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
                       value={regConfirmPassword}
                       onChange={(e) => {
                         setRegError(null);

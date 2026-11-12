@@ -453,7 +453,7 @@ const AdminDashboard: React.FC = () => {
             <div className="p-3 rounded-xl bg-[#F1F4EF] border border-[#E3E9E2]">
               <span className="text-[10px] uppercase font-semibold text-[#6D7C73] block">Engine Status</span>
               <span className="font-bold text-[#1D2B27] mt-1 block">
-                {healthData?.database.status === 'connected' ? 'PostgreSQL Active (127.0.0.1:5432)' : 'Disconnected'}
+                {healthData?.database.status === 'connected' ? 'PostgreSQL Active' : 'Disconnected'}
               </span>
             </div>
             <div className="p-3 rounded-xl bg-[#F1F4EF] border border-[#E3E9E2]">

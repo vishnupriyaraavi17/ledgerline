@@ -25,7 +25,7 @@ import type {
 import type { AccountStatementResponse } from '../types/statement';
 
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '/api/v1' : 'http://127.0.0.1:8000/api/v1');
 
 // Strictly in-memory access token storage (XSS resilient, never stored in localStorage)
 let inMemoryAccessToken: string | null = null;
@@ -40,7 +40,8 @@ export const getAuthToken = (): string | null => {
 
 export const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 5000,
+  timeout: 10000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -55,6 +56,74 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+// Concurrency-safe automatic token renewal queue
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (value?: any) => void;
+  reject: (reason?: any) => void;
+}> = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+// Response interceptor: automatically renew expired access tokens via HttpOnly refresh cookie
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    if (
+      error.response?.status === 401 &&
+      originalRequest &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes('/auth/login') &&
+      !originalRequest.url?.includes('/auth/refresh') &&
+      !originalRequest.url?.includes('/auth/register')
+    ) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return apiClient(originalRequest);
+          })
+          .catch((err) => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const refreshResponse = await axios.post<TokenResponse>(
+          `${API_BASE_URL}/auth/refresh`,
+          {},
+          { withCredentials: true }
+        );
+        const newAccessToken = refreshResponse.data.access_token;
+        setAuthToken(newAccessToken);
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        processQueue(null, newAccessToken);
+        return apiClient(originalRequest);
+      } catch (refreshErr) {
+        processQueue(refreshErr, null);
+        setAuthToken(null);
+        return Promise.reject(refreshErr);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+    return Promise.reject(error);
+  }
 );
 
 export const apiService = {
@@ -72,6 +141,25 @@ export const apiService = {
   async login(credentials: LoginCredentials): Promise<TokenResponse> {
     const response = await apiClient.post<TokenResponse>('/auth/login', credentials);
     return response.data;
+  },
+
+  /**
+   * Restores an authenticated session via the HttpOnly, Secure refresh cookie.
+   */
+  async refreshToken(): Promise<TokenResponse> {
+    const response = await apiClient.post<TokenResponse>('/auth/refresh');
+    return response.data;
+  },
+
+  /**
+   * Revokes the active server-side session in Redis and clears the HttpOnly cookie.
+   */
+  async logout(): Promise<void> {
+    try {
+      await apiClient.post('/auth/logout');
+    } finally {
+      setAuthToken(null);
+    }
   },
 
   /**

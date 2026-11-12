@@ -258,7 +258,9 @@ export const AccountsPage: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-serif font-bold text-[#1D2B27]">Your Accounts</h1>
+              <h1 className="text-xl font-serif font-bold text-[#1D2B27]">
+                {user?.role === 'account_holder' ? 'Your Accounts' : 'System Accounts'}
+              </h1>
             </div>
             <p className="text-xs text-[#6D7C73] mt-0.5">
               {user?.role === 'account_holder'
@@ -302,7 +304,9 @@ export const AccountsPage: React.FC = () => {
       <div className="p-4 bg-[#DCE9DF]/40 border border-[#C5D9C9] rounded-2xl text-[#1D2B27] text-xs flex items-start gap-3">
         <Building className="w-4 h-4 text-[#245344] shrink-0 mt-0.5" />
         <div className="space-y-0.5">
-          <span className="font-semibold text-[#1D2B27]">Your Accounts</span>
+          <span className="font-semibold text-[#1D2B27]">
+            {user?.role === 'account_holder' ? 'Account Integrity & Balance Protection' : 'System Account Integrity'}
+          </span>
           <p className="text-[#6D7C73] text-[11px]">
             All account balances are updated securely through verified transactions with guaranteed balance accuracy.
           </p>

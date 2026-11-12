@@ -146,9 +146,13 @@ export const UsersPage: React.FC = () => {
             <UsersIcon className="w-5 h-5 text-[#DCE9DF]" />
           </div>
           <div>
-            <h1 className="text-xl font-serif font-bold text-[#1D2B27]">User Management</h1>
+            <h1 className="text-xl font-serif font-bold text-[#1D2B27]">
+              {user?.role === 'auditor' ? 'User Directory' : 'User Management'}
+            </h1>
             <p className="text-xs text-[#6D7C73] mt-0.5">
-              View and manage registered user accounts and their assigned roles ({total} registered)
+              {user?.role === 'auditor'
+                ? `Auditor read-only inspection of registered user accounts (${total} registered)`
+                : `View and manage registered user accounts and their assigned roles (${total} registered)`}
             </p>
           </div>
         </div>
